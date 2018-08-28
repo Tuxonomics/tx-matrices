@@ -292,59 +292,52 @@ void PrintBits(u64 const size, void const * const ptr) {
 }
 
 
-Inline
-f64 f64Add( f64 a, f64 b )
-{
-    return a + b;
-}
+#define ADD(type) Inline \
+type type##Add( type a, type b ) { return a + b; }
 
-Inline
-f64 f64Sub( f64 a, f64 b )
-{
-    return a - b;
-}
+#define SUB(type) Inline \
+type type##Sub( type a, type b ) { return a - b; }
 
-Inline
-f64 f64Mul( f64 a, f64 b )
-{
-    return a * b;
-}
+#define MUL(type) Inline \
+type type##Mul( type a, type b ) { return a * b; }
 
-Inline
-f64 f64Div( f64 a, f64 b )
-{
-    return a / b;
-}
+#define DIV(type) Inline \
+type type##Div( type a, type b ) { return a / b; }
 
-Inline
-f64 f64Neg( f64 a )
-{
-    return -a;
-}
+#define NEG(type) Inline \
+type type##Neg( type a ) { return -a; }
 
-Inline
-f64 f64Const( f64 a )
-{
-    return a;
-}
+#define CONST(type) Inline \
+type type##Const( type a ) { return a; }
 
-Inline
-void f64Print( f64 a )
-{
-    printf("%.4f", a);
-}
+#define PRINT(type) Inline \
+void type##Print( type a ) { printf("%.4f", a); }
+
+#define EQUAL(type) Inline \
+b32 type##Equal( type a, type b, type eps ) { return fabs( a - b ) < eps; }
 
 
-Inline
-b32 f64Equal( f64 a, f64 b, f64 eps )
-{
-    return fabs( a - b ) < eps;
-}
+#define BASIC_FUNCS(t) \
+    ADD(t); \
+    SUB(t); \
+    MUL(t); \
+    DIV(t); \
+    NEG(t); \
+    CONST(t); \
+    PRINT(t); \
+    EQUAL(t);
+
+
+BASIC_FUNCS(f32);
+BASIC_FUNCS(f64);
 
 
 #if TEST
 void test_f64Equal()
 {
+    TEST_ASSERT( f32Equal( 1.0f, 0.51f, 0.5 ) );
+    TEST_ASSERT( ! f32Equal( 0.0f, 0.01f, 1E-2 ) );
+
     TEST_ASSERT( f64Equal( 1, 0.51, 0.5 ) );
     TEST_ASSERT( ! f64Equal( 0.0, 0.01, 1E-2 ) );
 }

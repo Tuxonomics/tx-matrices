@@ -262,7 +262,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = H682R77BSY;
+				DEVELOPMENT_TEAM = "";
 				HEADER_SEARCH_PATHS = /opt/intel/compilers_and_libraries_2018.3.185/mac/mkl/include;
 				OTHER_LDFLAGS = (
 					"-lpthread",
@@ -282,7 +282,7 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = H682R77BSY;
+				DEVELOPMENT_TEAM = "";
 				HEADER_SEARCH_PATHS = /opt/intel/compilers_and_libraries_2018.3.185/mac/mkl/include;
 				OTHER_LDFLAGS = (
 					"-lpthread",
