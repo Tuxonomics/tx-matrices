@@ -165,6 +165,16 @@
         } \
     }
 
+#define MAT_ELOP(type, suffix, fun) void \
+    type##MatEl##suffix( type##Mat a, type##Mat b, type##Mat c ) /* c = a .* b */ \
+    { \
+        ASSERT(a.dim0 == b.dim0 && a.dim1 == b.dim1 && a.dim0 == c.dim0 && a.dim1 == c.dim1); \
+        \
+        for ( u32 i=0; i<(a.dim0*a.dim1); ++i ) { \
+            c.data[i] = fun( a.data[i], b.data[i] ); \
+        } \
+    }
+
 #define MAT_MUL(type, blas_prefix) Inline void \
     type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
     { \
@@ -182,7 +192,7 @@
         ); \
     }
 
-#define MAT_TRACE(type) Inline type \
+#define MAT_TRACE(type) type \
     type##MatTrace( type##Mat m ) /* out = trace(m) */ \
     { \
         ASSERT( m.dim0 == m.dim1 ); \
@@ -193,8 +203,35 @@
         return res; \
     }
 
-// TODO(jonas): element-wise multiplication
-// TODO(jonas): trace, determinant, transpose
+// TODO(jonas): use cache-aware transposition
+#define MAT_T(type) void \
+    type##MatT(type##Mat m) \
+    { \
+        u32 start, next, i; \
+        u32 w = m.dim0; \
+        u32 h = m.dim1; \
+        \
+        type tmp; \
+         \
+        for (start = 0; start <= w * h - 1; ++start) { \
+            next = start; \
+            i = 0; \
+            do { \
+                i++; \
+                next = (next % h) * w + next / h; \
+            } while (next > start); \
+            if (next < start || i == 1) continue; \
+             \
+            tmp = m.data[next = start]; \
+            do { \
+                i = (next % h) * w + next / h; \
+                m.data[next] = (i == start) ? tmp : m.data[i]; \
+                next = i; \
+            } while (next > start); \
+        } \
+    }
+
+// TODO(jonas): determinant, QR decomposition, inverse
 
 #endif
 
@@ -216,6 +253,9 @@ MAT_ADD(f64, f64Add);
 MAT_SUB(f64, f64Sub);
 MAT_MUL(f64, d);
 MAT_TRACE(f64);
+MAT_T(f64);
+MAT_ELOP(f64, Mul, f64Mul);
+MAT_ELOP(f64, Div, f64Div);
 
 
 #if TEST
