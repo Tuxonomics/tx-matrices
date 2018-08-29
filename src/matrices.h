@@ -12,6 +12,8 @@
 #define UPPER CblasUpper
 #define LOWER CblasLower
 
+// TODO(jonas): how to handle inf and nan? LAPACK routines do not handle them
+
 // TODO(jonas): intel-based default allocator and arena for alignment
 
 
@@ -137,14 +139,14 @@
         memcpy( newCol.data, &m.data[idx], sizeof( type ) * m.dim0 ); \
     }
 
-#define MAT_SCALE(type, blas_prefix) void \
+#define MAT_SCALE(type, blas_prefix) Inline void \
     type##MatScale( type##Mat m, type val ) \
     { \
         cblas_##blas_prefix##scal( (m.dim0 * m.dim1), val, m.data, 1); \
     }
 
 #define MAT_ADD(type, fun) Inline void \
-    type##MatAdd(type##Mat a, type##Mat b, type##Mat c) /* c = a + b */ \
+    type##MatAdd( type##Mat a, type##Mat b, type##Mat c ) /* c = a + b */ \
     { \
         ASSERT(a.dim0 == b.dim0 && a.dim1 == b.dim1 && a.dim0 == c.dim0 && a.dim1 == c.dim1); \
         \
@@ -154,7 +156,7 @@
     }
 
 #define MAT_SUB(type, fun) Inline void \
-    type##MatSub(type##Mat a, type##Mat b, type##Mat c) /* c = a - b */ \
+    type##MatSub( type##Mat a, type##Mat b, type##Mat c ) /* c = a - b */ \
     { \
         ASSERT(a.dim0 == b.dim0 && a.dim1 == b.dim1 && a.dim0 == c.dim0 && a.dim1 == c.dim1); \
         \
@@ -163,8 +165,36 @@
         } \
     }
 
+#define MAT_MUL(type, blas_prefix) Inline void \
+    type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
+    { \
+        ASSERT(a.dim0 == c.dim0 && a.dim1 == b.dim0 && b.dim1 == c.dim1); \
+         \
+        /* lda, ldb, ldc - leading dimensions of matrices: number of columns in matrices */ \
+        cblas_##blas_prefix##gemm ( \
+            DEFAULT_MAJOR, NO_TRANS, NO_TRANS, \
+            a.dim0, b.dim1, a.dim1, \
+            1.0, \
+            a.data, a.dim1, \
+            b.data, b.dim1, \
+            0, \
+            c.data, b.dim1 \
+        ); \
+    }
 
+#define MAT_TRACE(type) Inline type \
+    type##MatTrace( type##Mat m ) /* out = trace(m) */ \
+    { \
+        ASSERT( m.dim0 == m.dim1 ); \
+        type res = 0; \
+        for ( u32 i = 0; i < m.dim0; ++i ) { \
+            res += m.data[ i * (m.dim0 + 1) ]; \
+        } \
+        return res; \
+    }
 
+// TODO(jonas): element-wise multiplication
+// TODO(jonas): trace, determinant, transpose
 
 #endif
 
@@ -184,6 +214,8 @@ MAT_GETCOL(f64);
 MAT_SCALE(f64, d);
 MAT_ADD(f64, f64Add);
 MAT_SUB(f64, f64Sub);
+MAT_MUL(f64, d);
+MAT_TRACE(f64);
 
 
 #if TEST
@@ -211,14 +243,17 @@ void test_f64Matrices()
     
     f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
 
+    /* set entire matrix to value */
     f64MatSet( e, 0 );
     
     TEST_ASSERT( f64MatEqual( d, e, EPS ) );
     
+    /* copy matrix */
     f64MatCopy( a, e );
     
     TEST_ASSERT( f64MatEqual( a, e, EPS ) );
     
+    /* scale matrix */
     for ( u32 i=0; i<9; ++i )
         e.data[i] = e.data[i] * 5;
     
@@ -246,10 +281,9 @@ void test_f64Matrices()
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
     
-    
-    
     /* addition */
     f64MatAdd( a, b, c );
+    
     
     e.data[0] = 0;
     e.data[1] = 3;
@@ -266,30 +300,32 @@ void test_f64Matrices()
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
     
-//    /* multiplication */
-//    memset( c.data, 0, c.dim0 * c.dim1 * sizeof(f64) );
-//    
-//    f64MatMul( a, b, c );
-//    
-//    e.data[0] = 30;
-//    e.data[1] = 36;
-//    e.data[2] = 42;
-//    
-//    e.data[3] = 84;
-//    e.data[4] = 108;
-//    e.data[5] = 132;
-//    
-//    e.data[6] = 138;
-//    e.data[7] = 180;
-//    e.data[8] = 222;
-//    
-//    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-//    
-//    memset( e.data, 0, e.dim0 * e.dim1 * sizeof(f64) );
-//    
-//    f64MatMul_Naive( a, b, e );
-//    
-//    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
+    /* multiplication */
+    
+    f64MatMul( a, b, c );
+    
+    e.data[0] = 30;
+    e.data[1] = 36;
+    e.data[2] = 42;
+    
+    e.data[3] = 84;
+    e.data[4] = 108;
+    e.data[5] = 132;
+    
+    e.data[6] = 138;
+    e.data[7] = 180;
+    e.data[8] = 222;
+    
+    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
+    
+    
+    /* trace */
+    f64MatSet( c, 0 );
+    
+    for ( u32 i=1; i<c.dim0; ++i )
+        c.data[ i * c.dim0 + i ] = (f64) i;
+    
+    TEST_ASSERT( f64Equal( f64MatTrace(c), 3.0, EPS ) );
     
     
     f64MatFree( DefaultAllocator, &a );

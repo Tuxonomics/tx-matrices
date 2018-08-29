@@ -74,8 +74,6 @@
 #define MAX(x, y) ((x) >= (y) ? (x) : (y))
 #define IS_POW2(x) (((x) != 0) && ((x) & ((x)-1)) == 0)
 
-#define CACHE_LINES_SQRT 22 // square root of cache lines on Intel i7-48**
-
 #define CONCAT(x,y) x##y
 
 #define KB(x) (  (x)*1024LL)
@@ -342,6 +340,18 @@ void test_f64Equal()
     TEST_ASSERT( ! f64Equal( 0.0, 0.01, 1E-2 ) );
 }
 #endif
+
+
+
+#undef ADD
+#undef SUB
+#undef MUL
+#undef DIV
+#undef NEG
+#undef CONST
+#undef PRINT
+#undef EQUAL
+#undef BASIC_FUNCS
 
 
 #include "rng.h"
