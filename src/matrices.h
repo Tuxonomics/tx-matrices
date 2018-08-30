@@ -13,7 +13,6 @@
 #define LOWER CblasLower
 
 // TODO(jonas): how to handle inf and nan? LAPACK routines do not handle them
-
 // TODO(jonas): intel-based default allocator and arena for alignment
 
 
@@ -231,7 +230,48 @@
         } \
     }
 
-// TODO(jonas): determinant, QR decomposition, inverse
+#define MAT_INV(type, lapack_prefix) i32 \
+    type##MatInv(type##Mat m) \
+    {\
+        ASSERT( m.dim0 == m.dim1 ); \
+        \
+        u32 n = m.dim0; \
+        i32 ipiv[n+1]; \
+        \
+        i32 ret = LAPACKE_##lapack_prefix##getrf( \
+            DEFAULT_MAJOR, n, n, m.data, n, ipiv \
+        ); \
+        \
+        if (ret !=0) { \
+            return ret; \
+        } \
+        \
+        ret = LAPACKE_dgetri( \
+            DEFAULT_MAJOR, n, m.data, n, ipiv \
+        ); \
+        return ret; \
+    }
+
+// TODO(jonas): maybe use QR decomposition for determinant to improve accuracy
+//#define MAT_DET(type, lapack_prefix) type \
+    type##MatInv(type##Mat m) \
+    {\
+        ASSERT( m.dim0 == m.dim1 ); \
+        \
+        u32 n = m.dim0; \
+        i32 ipiv[n+1]; \
+        \
+        i32 ret1 = LAPACKE_##lapack_prefix##getrf( \
+            DEFAULT_MAJOR, n, n, m.data, n, ipiv \
+        ); \
+        \
+        if (ret1 !=0) { \
+            return 0; \
+        } \
+    }
+
+
+// TODO(jonas): QR decomposition,
 
 #endif
 
@@ -256,6 +296,7 @@ MAT_TRACE(f64);
 MAT_T(f64);
 MAT_ELOP(f64, Mul, f64Mul);
 MAT_ELOP(f64, Div, f64Div);
+MAT_INV(f64, d);
 
 
 #if TEST
@@ -341,9 +382,8 @@ void test_f64Matrices()
     
     
     /* multiplication */
-    
     f64MatMul( a, b, c );
-    
+
     e.data[0] = 30;
     e.data[1] = 36;
     e.data[2] = 42;
@@ -358,14 +398,24 @@ void test_f64Matrices()
     
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
-    
     /* trace */
     f64MatSet( c, 0 );
     
-    for ( u32 i=1; i<c.dim0; ++i )
-        c.data[ i * c.dim0 + i ] = (f64) i;
+    for ( u32 i=0; i<c.dim0; ++i )
+        c.data[ i * c.dim0 + i ] = (f64) i + 0.5;
     
-    TEST_ASSERT( f64Equal( f64MatTrace(c), 3.0, EPS ) );
+    TEST_ASSERT( f64Equal( f64MatTrace(c), 4.5, EPS ) );
+    
+    
+    /* inverse */
+    f64MatInv( c );
+    
+    f64MatSet( e, 0 );
+    for ( u32 i=0; i<e.dim0; ++i )
+        e.data[ i * e.dim0 + i ] = 1 / ((f64) i + 0.5);
+
+    
+    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
     
     f64MatFree( DefaultAllocator, &a );
