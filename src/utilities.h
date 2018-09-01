@@ -329,6 +329,7 @@ b32 type##Equal( type a, type b, type eps ) { return fabs( a - b ) < eps; }
 BASIC_FUNCS(f32);
 BASIC_FUNCS(f64);
 
+void i32Print( i32 a ) { printf("%d\n", a); }
 
 #if TEST
 void test_f64Equal()

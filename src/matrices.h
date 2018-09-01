@@ -1,6 +1,4 @@
-
 #include "mkl.h"
-
 
 /* row-major matrix definition */
 
@@ -12,8 +10,11 @@
 #define UPPER CblasUpper
 #define LOWER CblasLower
 
+
 // TODO(jonas): how to handle inf and nan? LAPACK routines do not handle them
 // TODO(jonas): intel-based default allocator and arena for alignment
+// TODO(jonas): make use of scratch buffer to support even larger matrices, and
+// to not alter the input
 
 
 #define MAT_DECL(type) typedef struct type##Mat type##Mat; \
@@ -138,6 +139,36 @@
         memcpy( newCol.data, &m.data[idx], sizeof( type ) * m.dim0 ); \
     }
 
+#define MAT_SETROW(type) Inline void \
+    type##MatSetRow(type##Mat m, u32 dim, type##Mat newCol) \
+    { \
+        ASSERT( m.data ); \
+        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        \
+        for ( u32 i=0; i<m.dim1; ++i ) { \
+            m.data[dim * m.dim1 + i] = newCol.data[i]; \
+        } \
+    }
+
+#define MAT_GETROW(type) Inline void \
+    type##MatGetRow(type##Mat m, u32 dim, type##Mat newCol) \
+    { \
+        ASSERT( m.data ); \
+        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        \
+        for ( u32 i=0; i<m.dim1; ++i ) { \
+            newCol.data[i] = m.data[dim * m.dim1 + i]; \
+        } \
+    }
+
+#define MAT_VNORM(type, blas_prefix) Inline type \
+    type##MatVNorm(type##Mat m) \
+    { \
+        ASSERT( m.dim0 == 1 || m.dim1 == 1 ); \
+         \
+        return cblas_##blas_prefix##nrm2( MAX(m.dim0, m.dim1), m.data, 1 ); \
+    }
+
 #define MAT_SCALE(type, blas_prefix) Inline void \
     type##MatScale( type##Mat m, type val ) \
     { \
@@ -253,8 +284,8 @@
     }
 
 // TODO(jonas): maybe use QR decomposition for determinant to improve accuracy
-//#define MAT_DET(type, lapack_prefix) type \
-    type##MatInv(type##Mat m) \
+#define MAT_DET(type, lapack_prefix) type \
+    type##MatDet(type##Mat m) \
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
@@ -268,10 +299,27 @@
         if (ret1 !=0) { \
             return 0; \
         } \
+        type det = 1; \
+        for ( u32 i=0; i<n; ++i ) { \
+            det *= m.data[ i*n + i]; \
+        } \
+        u32 j; \
+        f64 detp= 1; \
+        for ( j=0; j<n; ++j ) { \
+            if ( j+1 != ipiv[j] ) { \
+                detp=-detp; \
+            } \
+        } \
+        return det * detp; \
     }
 
 
 // TODO(jonas): QR decomposition,
+
+//lapack_int LAPACKE_dpotrf (int matrix_layout , char uplo , lapack_int n , double * a ,
+//                           lapack_int lda )
+
+
 
 #endif
 
@@ -288,6 +336,9 @@ MAT_GETELEMENT(f64);
 MAT_COPY(f64, d);
 MAT_SETCOL(f64);
 MAT_GETCOL(f64);
+MAT_SETROW(f64);
+MAT_GETROW(f64);
+MAT_VNORM(f64, d);
 MAT_SCALE(f64, d);
 MAT_ADD(f64, f64Add);
 MAT_SUB(f64, f64Sub);
@@ -297,6 +348,15 @@ MAT_T(f64);
 MAT_ELOP(f64, Mul, f64Mul);
 MAT_ELOP(f64, Div, f64Div);
 MAT_INV(f64, d);
+MAT_DET(f64, d);
+
+
+
+MAT_DECL(i32);
+MAT_MAKE(i32);
+MAT_FREE(i32);
+MAT_PRINT(i32, i32Print);
+
 
 
 #if TEST
@@ -365,7 +425,6 @@ void test_f64Matrices()
     /* addition */
     f64MatAdd( a, b, c );
     
-    
     e.data[0] = 0;
     e.data[1] = 3;
     e.data[2] = 6;
@@ -406,6 +465,26 @@ void test_f64Matrices()
     
     TEST_ASSERT( f64Equal( f64MatTrace(c), 4.5, EPS ) );
     
+    /* euclidean norma of vector */
+    f64Mat f = f64MatMake( DefaultAllocator, 9, 1 );
+    
+    f.data[0] = 0.3306201;
+    f.data[1] = 0.6187407;
+    f.data[2] = 0.6796355;
+    f.data[3] = 0.4953877;
+    f.data[4] = 0.9147741;
+    f.data[5] = 0.3992435;
+    f.data[6] = 0.5875585;
+    f.data[7] = 0.4554847;
+    f.data[8] = 0.8567403;
+    
+    TEST_ASSERT( f64Equal( f64MatVNorm(f), 1.86610966, 1E-7 ) );
+    
+    /* determinant */
+    f.dim0 = 3;
+    f.dim1 = 3;
+    
+    TEST_ASSERT( f64Equal( f64MatDet(f), -0.130408, 1E-6 ) );
     
     /* inverse */
     f64MatInv( c );
@@ -418,11 +497,32 @@ void test_f64Matrices()
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
     
+    f.data[0] = 1;
+    f.data[1] = 0;
+    f.data[2] = 0.5;
+    f.data[3] = 0;
+    f.data[4] = 0.5;
+    f.data[5] = 0;
+    f.data[6] = 0.5;
+    f.data[7] = 0;
+    f.data[8] = 2;
+    
+    LAPACKE_dpotrf ( DEFAULT_MAJOR, 'U', f.dim0, f.data, f.dim0 );
+    
+    f64MatPrint( f, "f" );
+    
+    f64Mat vec = f64MatMake( DefaultAllocator, 3, 1 );
+    
+    cblas_dtrmv( DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, f.dim0, f.data, f.dim0, vec.data, 1);
+    
+    f64MatPrint( vec, "vec" );
+    
     f64MatFree( DefaultAllocator, &a );
     f64MatFree( DefaultAllocator, &b );
     f64MatFree( DefaultAllocator, &c );
     f64MatFree( DefaultAllocator, &d );
     f64MatFree( DefaultAllocator, &e );
+    f64MatFree( DefaultAllocator, &f );
     
 #undef EPS
 }
