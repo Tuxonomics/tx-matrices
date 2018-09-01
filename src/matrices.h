@@ -2,6 +2,8 @@
 
 /* row-major matrix definition */
 
+#define EPS 1E-10
+
 #ifndef MAT_DECL
 
 #define DEFAULT_MAJOR CblasRowMajor
@@ -15,7 +17,7 @@
 // TODO(jonas): intel-based default allocator and arena for alignment
 // TODO(jonas): make use of scratch buffer to support even larger matrices, and
 // to not alter the input
-
+// TODO(jonas): QR decomposition
 
 #define MAT_DECL(type) typedef struct type##Mat type##Mat; \
     struct type##Mat { \
@@ -41,24 +43,45 @@
         Free(al, m->data); \
     }
 
+#define MAT_PRINTLONG(type, baseFun) void \
+    type##MatPrintLong(type##Mat m, const char* name) \
+    { \
+        printf("Mat (%s): {\n", name); \
+        printf("\t.dim0 = %u\n", m.dim0); \
+        printf("\t.dim1 = %u\n", m.dim1); \
+        printf("\t.data = {\n\n"); \
+        u32 dim; \
+        for (u32 i=0; i<m.dim0; ++i) { \
+            for (u32 j=0; j<m.dim1; ++j) { \
+                dim = i*m.dim1 + j; \
+                printf("[%d]\n", dim); \
+                baseFun(m.data[dim]); \
+                printf("\n"); \
+            } \
+            printf("\n"); \
+        } \
+        printf("\n\t}\n"); \
+        printf("}\n"); \
+    }
+
 #define MAT_PRINT(type, baseFun) void \
     type##MatPrint(type##Mat m, const char* name) \
     { \
         printf("Mat (%s): {\n", name); \
         printf("\t.dim0 = %u\n", m.dim0); \
         printf("\t.dim1 = %u\n", m.dim1); \
-        printf("\t.data = {\n"); \
+        printf("\t.data = {\n\n"); \
         u32 dim; \
         for (u32 i=0; i<m.dim0; ++i) { \
-        for (u32 j=0; j<m.dim1; ++j) { \
-        dim = i*m.dim1 + j; \
-        printf("[%d]\n", dim); \
-        baseFun(m.data[dim]); \
-        printf("\n"); \
+            for (u32 j=0; j<m.dim1; ++j) { \
+                dim = i*m.dim1 + j; \
+                printf("[%d] ", dim); \
+                baseFun(m.data[dim]); \
+                printf("  "); \
+            } \
+            printf("\n"); \
         } \
-        printf("\n"); \
-        } \
-        printf("\n\t}\n\n"); \
+        printf("\n\t}\n"); \
         printf("}\n"); \
     }
 
@@ -235,42 +258,31 @@
 
 // TODO(jonas): use cache-aware transposition
 #define MAT_T(type) void \
-    type##MatT(type##Mat m) \
+    type##MatT(type##Mat m, type##Mat dst) \
     { \
-        u32 start, next, i; \
-        u32 w = m.dim0; \
-        u32 h = m.dim1; \
+        ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         \
-        type tmp; \
-         \
-        for (start = 0; start <= w * h - 1; ++start) { \
-            next = start; \
-            i = 0; \
-            do { \
-                i++; \
-                next = (next % h) * w + next / h; \
-            } while (next > start); \
-            if (next < start || i == 1) continue; \
-             \
-            tmp = m.data[next = start]; \
-            do { \
-                i = (next % h) * w + next / h; \
-                m.data[next] = (i == start) ? tmp : m.data[i]; \
-                next = i; \
-            } while (next > start); \
+        for ( u32 i=0; i<m.dim0; ++i ) { \
+            for ( u32 j=0; j<m.dim1; ++j ) { \
+                dst.data[ i * m.dim0 + j ] = m.data[ i * m.dim0 +j ]; \
+            } \
         } \
     }
 
+/* matrix inverse */
+// TODO(jonas): use scratch buffer
 #define MAT_INV(type, lapack_prefix) i32 \
-    type##MatInv(type##Mat m) \
+    type##MatInv(type##Mat m, type##Mat dst) \
     {\
-        ASSERT( m.dim0 == m.dim1 ); \
+        ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         \
-        u32 n = m.dim0; \
+        type##Mat tmp = type##MatMake( DefaultAllocator, m.dim0, m.dim1 ); \
+        type##MatCopy( m, tmp ); \
+        u32 n = tmp.dim0; \
         i32 ipiv[n+1]; \
         \
         i32 ret = LAPACKE_##lapack_prefix##getrf( \
-            DEFAULT_MAJOR, n, n, m.data, n, ipiv \
+            DEFAULT_MAJOR, n, n, tmp.data, n, ipiv \
         ); \
         \
         if (ret !=0) { \
@@ -278,22 +290,29 @@
         } \
         \
         ret = LAPACKE_dgetri( \
-            DEFAULT_MAJOR, n, m.data, n, ipiv \
+            DEFAULT_MAJOR, n, tmp.data, n, ipiv \
         ); \
+        type##MatCopy( tmp, dst ); \
+        type##MatFree( DefaultAllocator, &tmp ); \
+        \
         return ret; \
     }
 
 // TODO(jonas): maybe use QR decomposition for determinant to improve accuracy
+// TODO(jonas): switch to scratch buffer
 #define MAT_DET(type, lapack_prefix) type \
     type##MatDet(type##Mat m) \
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
-        u32 n = m.dim0; \
+        type##Mat tmp = type##MatMake( DefaultAllocator, m.dim0, m.dim0 ); \
+        type##MatCopy( m, tmp ); \
+        \
+        u32 n = tmp.dim0; \
         i32 ipiv[n+1]; \
         \
         i32 ret1 = LAPACKE_##lapack_prefix##getrf( \
-            DEFAULT_MAJOR, n, n, m.data, n, ipiv \
+            DEFAULT_MAJOR, n, n, tmp.data, n, ipiv \
         ); \
         \
         if (ret1 !=0) { \
@@ -301,7 +320,7 @@
         } \
         type det = 1; \
         for ( u32 i=0; i<n; ++i ) { \
-            det *= m.data[ i*n + i]; \
+            det *= tmp.data[ i*n + i]; \
         } \
         u32 j; \
         f64 detp= 1; \
@@ -310,16 +329,36 @@
                 detp=-detp; \
             } \
         } \
+        \
+        type##MatFree( DefaultAllocator, &tmp ); \
+        \
         return det * detp; \
     }
 
-
-// TODO(jonas): QR decomposition,
-
-//lapack_int LAPACKE_dpotrf (int matrix_layout , char uplo , lapack_int n , double * a ,
-//                           lapack_int lda )
-
-
+/* scale input vector by covariance matrix m, m can be upper triangular */
+// TODO(jonas): switch to scratch buffer
+#define MAT_COVSCALE(type, lapack_prefix) void \
+    type##MatCovScale( type##Mat cov, type##Mat x, type##Mat dst ) \
+    { \
+        ASSERT( cov.dim0 == cov.dim1 ); \
+        ASSERT( x.dim0 == 1 || x.dim1 == 1 ); \
+        ASSERT( cov.dim0 == x.dim0 ); \
+        ASSERT( x.dim0 == dst.dim0 && dst.dim1 == 1 ); \
+        \
+        type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
+        type##Mat tmpX = type##MatMake( DefaultAllocator, x.dim0,   x.dim1 ); \
+        type##MatCopy( cov, tmpC ); \
+        type##MatCopy( x, tmpX ); \
+        \
+        LAPACKE_##lapack_prefix##potrf ( DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 ); \
+        \
+        cblas_##lapack_prefix##trmv( DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, tmpC.dim0, tmpC.data, tmpC.dim0, tmpX.data, 1); \
+        \
+        type##MatCopy( tmpX, dst ); \
+        \
+        type##MatFree( DefaultAllocator, &tmpC ); \
+        type##MatFree( DefaultAllocator, &tmpX ); \
+    }
 
 #endif
 
@@ -327,6 +366,7 @@
 MAT_DECL(f64);
 MAT_MAKE(f64);
 MAT_FREE(f64);
+MAT_PRINTLONG(f64, f64Print);
 MAT_PRINT(f64, f64Print);
 MAT_EQUAL(f64, f64Equal);
 MAT_ZERO(f64);
@@ -338,136 +378,153 @@ MAT_SETCOL(f64);
 MAT_GETCOL(f64);
 MAT_SETROW(f64);
 MAT_GETROW(f64);
-MAT_VNORM(f64, d);
+
 MAT_SCALE(f64, d);
-MAT_ADD(f64, f64Add);
-MAT_SUB(f64, f64Sub);
-MAT_MUL(f64, d);
-MAT_TRACE(f64);
-MAT_T(f64);
+MAT_VNORM(f64, d);             // tested
+MAT_ADD(f64, f64Add);          // tested
+MAT_SUB(f64, f64Sub);          // tested
+MAT_MUL(f64, d);               // tested
 MAT_ELOP(f64, Mul, f64Mul);
 MAT_ELOP(f64, Div, f64Div);
-MAT_INV(f64, d);
-MAT_DET(f64, d);
+MAT_TRACE(f64);                // tested
+MAT_T(f64);
+MAT_INV(f64, d);               // tested
+MAT_DET(f64, d);               // tested
 
-
-
-MAT_DECL(i32);
-MAT_MAKE(i32);
-MAT_FREE(i32);
-MAT_PRINT(i32, i32Print);
-
+MAT_COVSCALE(f64, d);
 
 
 #if TEST
-void test_f64Matrices()
+void test_scale()
 {
-#define EPS 1E-10
     
+}
+#endif
+
+
+#if TEST
+void test_vnorm()
+{
+    f64Mat f = f64MatMake( DefaultAllocator, 9, 1 );
+    
+    f.data[0] = 0.3306201; f.data[1] = 0.6187407; f.data[2] = 0.6796355;
+    f.data[3] = 0.4953877; f.data[4] = 0.9147741; f.data[5] = 0.3992435;
+    f.data[6] = 0.5875585; f.data[7] = 0.4554847; f.data[8] = 0.8567403;
+    
+    TEST_ASSERT( f64Equal( f64MatVNorm(f), 1.86610966, 1E-7 ) );
+    
+    f64MatFree( DefaultAllocator, &f );
+}
+#endif
+
+#if TEST
+void test_add_sub_mul()
+{
     f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
     f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
     f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
     
     for ( u32 i=0; i<9; ++i ) {
         a.data[i] = (f64) i;
         b.data[i] = (f64) 2*i;
     }
     
-    f64Mat d = f64MatZeroMake( DefaultAllocator, 3, 3 );
-    
-    
-    TEST_ASSERT( f64MatEqual( a, a, EPS ) );
-    TEST_ASSERT( ! f64MatEqual( a, b, EPS ) );
-    
-    
-    /* test matrix operations */
-    
-    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
-
-    /* set entire matrix to value */
-    f64MatSet( e, 0 );
-    
-    TEST_ASSERT( f64MatEqual( d, e, EPS ) );
-    
-    /* copy matrix */
-    f64MatCopy( a, e );
-    
-    TEST_ASSERT( f64MatEqual( a, e, EPS ) );
-    
-    /* scale matrix */
-    for ( u32 i=0; i<9; ++i )
-        e.data[i] = e.data[i] * 5;
-    
-    f64MatScale( a, 5 );
-    
-    TEST_ASSERT( f64MatEqual( a, e, EPS ) );
-    
-    f64MatScale( a, 0.2 );
-    
-    /* subtraction */
-    f64MatSub( a, b, c );
-    
-    e.data[0] = 0;
-    e.data[1] = -1;
-    e.data[2] = -2;
-    
-    e.data[3] = -3;
-    e.data[4] = -4;
-    e.data[5] = -5;
-    
-    e.data[6] = -6;
-    e.data[7] = -7;
-    e.data[8] = -8;
-    
-    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-    
-    
-    /* addition */
+    // add
     f64MatAdd( a, b, c );
-    
-    e.data[0] = 0;
-    e.data[1] = 3;
-    e.data[2] = 6;
-    
-    e.data[3] = 9;
-    e.data[4] = 12;
-    e.data[5] = 15;
-    
-    e.data[6] = 18;
-    e.data[7] = 21;
-    e.data[8] = 24;
-    
+
+    e.data[0] = 0;  e.data[1] = 3;  e.data[2] = 6;
+    e.data[3] = 9;  e.data[4] = 12; e.data[5] = 15;
+    e.data[6] = 18; e.data[7] = 21; e.data[8] = 24;
+
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
+    // sub
+    f64MatSub( a, b, c );
+
+    e.data[0] = 0;  e.data[1] = -1; e.data[2] = -2;
+    e.data[3] = -3; e.data[4] = -4; e.data[5] = -5;
+    e.data[6] = -6; e.data[7] = -7; e.data[8] = -8;
+
+    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
-    /* multiplication */
+    // mul
     f64MatMul( a, b, c );
 
-    e.data[0] = 30;
-    e.data[1] = 36;
-    e.data[2] = 42;
-    
-    e.data[3] = 84;
-    e.data[4] = 108;
-    e.data[5] = 132;
-    
-    e.data[6] = 138;
-    e.data[7] = 180;
-    e.data[8] = 222;
-    
+    e.data[0] = 30;  e.data[1] = 36;  e.data[2] = 42;
+    e.data[3] = 84;  e.data[4] = 108; e.data[5] = 132;
+    e.data[6] = 138; e.data[7] = 180; e.data[8] = 222;
+
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
     
-    /* trace */
-    f64MatSet( c, 0 );
+    f64MatFree( DefaultAllocator, &a );
+    f64MatFree( DefaultAllocator, &b );
+    f64MatFree( DefaultAllocator, &c );
+    f64MatFree( DefaultAllocator, &e );
+}
+#endif
+
+
+#if TEST
+void test_element_wise_ops()
+{
+    
+}
+#endif
+
+
+#if TEST
+void test_trace()
+{
+    f64Mat c = f64MatZeroMake( DefaultAllocator, 3, 3 );
     
     for ( u32 i=0; i<c.dim0; ++i )
         c.data[ i * c.dim0 + i ] = (f64) i + 0.5;
     
     TEST_ASSERT( f64Equal( f64MatTrace(c), 4.5, EPS ) );
     
-    /* euclidean norma of vector */
-    f64Mat f = f64MatMake( DefaultAllocator, 9, 1 );
+    f64MatFree( DefaultAllocator, &c );
+}
+#endif
+
+
+#if TEST
+void test_inverse()
+{
+    f64Mat c = f64MatZeroMake( DefaultAllocator, 3, 3 );
+    f64Mat e = f64MatZeroMake( DefaultAllocator, 3, 3 );
+    f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
     
+    for ( u32 i=0; i<c.dim0; ++i )
+        c.data[ i * c.dim0 + i ] = (f64) i + 0.5;
+    
+    f64MatInv( c, f );
+    
+    for ( u32 i=0; i<e.dim0; ++i )
+        e.data[ i * e.dim0 + i ] = 1 / ((f64) i + 0.5);
+    
+    TEST_ASSERT( f64MatEqual( f, e, EPS ) );
+    
+    f64MatFree( DefaultAllocator, &c );
+    f64MatFree( DefaultAllocator, &e );
+    f64MatFree( DefaultAllocator, &f );
+}
+#endif
+
+
+#if TEST
+void test_transpose()
+{
+    
+}
+#endif
+
+
+#if TEST
+void test_determinant()
+{
+    f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
+
     f.data[0] = 0.3306201;
     f.data[1] = 0.6187407;
     f.data[2] = 0.6796355;
@@ -477,54 +534,44 @@ void test_f64Matrices()
     f.data[6] = 0.5875585;
     f.data[7] = 0.4554847;
     f.data[8] = 0.8567403;
-    
-    TEST_ASSERT( f64Equal( f64MatVNorm(f), 1.86610966, 1E-7 ) );
-    
-    /* determinant */
-    f.dim0 = 3;
-    f.dim1 = 3;
-    
-    TEST_ASSERT( f64Equal( f64MatDet(f), -0.130408, 1E-6 ) );
-    
-    /* inverse */
-    f64MatInv( c );
-    
-    f64MatSet( e, 0 );
-    for ( u32 i=0; i<e.dim0; ++i )
-        e.data[ i * e.dim0 + i ] = 1 / ((f64) i + 0.5);
 
-    
-    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-    
-    
-    f.data[0] = 1;
-    f.data[1] = 0;
-    f.data[2] = 0.5;
-    f.data[3] = 0;
-    f.data[4] = 0.5;
-    f.data[5] = 0;
-    f.data[6] = 0.5;
-    f.data[7] = 0;
-    f.data[8] = 2;
-    
-    LAPACKE_dpotrf ( DEFAULT_MAJOR, 'U', f.dim0, f.data, f.dim0 );
-    
-    f64MatPrint( f, "f" );
-    
-    f64Mat vec = f64MatMake( DefaultAllocator, 3, 1 );
-    
-    cblas_dtrmv( DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, f.dim0, f.data, f.dim0, vec.data, 1);
-    
-    f64MatPrint( vec, "vec" );
-    
-    f64MatFree( DefaultAllocator, &a );
-    f64MatFree( DefaultAllocator, &b );
-    f64MatFree( DefaultAllocator, &c );
-    f64MatFree( DefaultAllocator, &d );
-    f64MatFree( DefaultAllocator, &e );
+    TEST_ASSERT( f64Equal( f64MatDet(f), -0.130408, 1E-6 ) );
+
     f64MatFree( DefaultAllocator, &f );
-    
-#undef EPS
 }
 #endif
+
+
+#if TEST
+void test_covariance_scaling()
+{
+    f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
+    
+    f.data[0] = 1; f.data[1] = 0;   f.data[2] = 0.5;
+    f.data[3] = 0; f.data[4] = 0.5; f.data[5] = 0;
+    f.data[6] = 0; f.data[7] = 0;   f.data[8] = 2;
+    
+    f64Mat x       = f64MatMake( DefaultAllocator, 3, 1 );
+    f64Mat xScaled = f64MatMake( DefaultAllocator, 3, 1 );
+
+    x.data[0] = 1; x.data[1] = 2; x.data[2] = 3;
+
+    f64MatCovScale( f, x, xScaled );
+
+    x.data[0] = 2.500000; x.data[1] = 1.414214; x.data[2] = 3.968627;
+    
+    TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
+}
+#endif
+
+
+
+MAT_DECL(i32);
+MAT_MAKE(i32);
+MAT_FREE(i32);
+MAT_PRINT(i32, i32Print);
+
+
+#undef EPS
+
 
