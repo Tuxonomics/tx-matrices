@@ -238,9 +238,10 @@ void *heapAllocFunc(void *payload, enum AllocType alType, size_t count, size_t s
         case AT_Calloc:
             return checkedCalloc(count, size);
         case AT_Free:
-        case AT_FreeAll:
+        case AT_FreeAll: {
             free(old);
             return NULL;
+        }
         case AT_Realloc:
             return checkedRealloc(old, count);
     }
@@ -248,6 +249,44 @@ void *heapAllocFunc(void *payload, enum AllocType alType, size_t count, size_t s
 }
 
 Allocator DefaultAllocator = { .func = heapAllocFunc, .payload = 0 };
+
+
+typedef struct Arena {
+    Allocator allocator;
+    u8  *raw;
+    u64 cap;
+    u64 len;
+} Arena;
+
+
+void *arenaAllocFunc(void *payload, enum AllocType alType, size_t count, size_t size, void *old) {
+//ALLOC_FUNC(arenaAllocFunc) {
+    Arena *arena = (Arena *) payload;
+    
+    switch (alType) {
+        case AT_Alloc: {
+            if (arena->len + size > arena->cap) {
+                return NULL;
+            }
+            u8 *ptr = &arena->raw[arena->len];
+            arena->len += size;
+            return ptr;
+        }
+        case AT_Calloc: {break;}
+        case AT_Free:
+        case AT_FreeAll: {
+            arena->len = 0;
+            break;
+        }
+        case AT_Realloc: {
+            break;
+        }
+    }
+    
+    return NULL;
+}
+
+
 
 void *Alloc(Allocator al, size_t count) {
     return al.func(al.payload, AT_Alloc, count, 0, NULL);

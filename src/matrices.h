@@ -1,10 +1,17 @@
+// Author:  https://github.com/Tuxonomics
+// Created: Aug, 2018
+//
+// Matrix abstraction for BLAS/LAPACK routines in C99. All matrices are of
+// row-major ordering.
+
 #include "mkl.h"
 
-/* row-major matrix definition */
 
 #define EPS 1E-10
 
 #ifndef MAT_DECL
+
+
 
 #define DEFAULT_MAJOR CblasRowMajor
 #define NO_TRANS CblasNoTrans
@@ -135,7 +142,7 @@
         return m.data[dim0 * m.dim1 + dim1]; \
     }
 
-#define MAT_COPY(type, blas_prefix) void \
+#define MAT_COPY(type, blas_prefix) Inline void \
     type##MatCopy( type##Mat src, type##Mat dst ) \
     { \
         ASSERT( (src.dim0 * src.dim1) == (dst.dim0 * dst.dim1) ); \
@@ -184,6 +191,7 @@
         } \
     }
 
+/* vector euclidean norm */
 #define MAT_VNORM(type, blas_prefix) Inline type \
     type##MatVNorm(type##Mat m) \
     { \
@@ -192,12 +200,16 @@
         return cblas_##blas_prefix##nrm2( MAX(m.dim0, m.dim1), m.data, 1 ); \
     }
 
+/* matrix scaling */
 #define MAT_SCALE(type, blas_prefix) Inline void \
-    type##MatScale( type##Mat m, type val ) \
+    type##MatScale( type##Mat m, type val, type##Mat dst ) \
     { \
-        cblas_##blas_prefix##scal( (m.dim0 * m.dim1), val, m.data, 1); \
+        ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
+        type##MatCopy( m, dst ); \
+        cblas_##blas_prefix##scal( (dst.dim0 * dst.dim1), val, dst.data, 1); \
     }
 
+/* matrix addition */
 #define MAT_ADD(type, fun) Inline void \
     type##MatAdd( type##Mat a, type##Mat b, type##Mat c ) /* c = a + b */ \
     { \
@@ -208,6 +220,7 @@
         } \
     }
 
+/* matrix subtraction */
 #define MAT_SUB(type, fun) Inline void \
     type##MatSub( type##Mat a, type##Mat b, type##Mat c ) /* c = a - b */ \
     { \
@@ -218,6 +231,7 @@
         } \
     }
 
+/* matrix operation with element-wise multiplication / division */
 #define MAT_ELOP(type, suffix, fun) void \
     type##MatEl##suffix( type##Mat a, type##Mat b, type##Mat c ) /* c = a .* b */ \
     { \
@@ -228,6 +242,7 @@
         } \
     }
 
+/* matrix multiplicaton */
 #define MAT_MUL(type, blas_prefix) Inline void \
     type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
     { \
@@ -245,6 +260,7 @@
         ); \
     }
 
+/* matrix trace */
 #define MAT_TRACE(type) type \
     type##MatTrace( type##Mat m ) /* out = trace(m) */ \
     { \
@@ -256,15 +272,16 @@
         return res; \
     }
 
+/* matrix transpose */
 // TODO(jonas): use cache-aware transposition
 #define MAT_T(type) void \
     type##MatT(type##Mat m, type##Mat dst) \
     { \
-        ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
+        ASSERT( m.dim0 == dst.dim1 && m.dim1 == dst.dim0 ); \
         \
         for ( u32 i=0; i<m.dim0; ++i ) { \
             for ( u32 j=0; j<m.dim1; ++j ) { \
-                dst.data[ i * m.dim0 + j ] = m.data[ i * m.dim0 +j ]; \
+                dst.data[ i * m.dim0 + j ] = m.data[ j * dst.dim0 + i ]; \
             } \
         } \
     }
@@ -350,15 +367,46 @@
         type##MatCopy( cov, tmpC ); \
         type##MatCopy( x, tmpX ); \
         \
-        LAPACKE_##lapack_prefix##potrf ( DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 ); \
+        LAPACKE_##lapack_prefix##potrf( \
+            DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 \
+        ); \
         \
-        cblas_##lapack_prefix##trmv( DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, tmpC.dim0, tmpC.data, tmpC.dim0, tmpX.data, 1); \
+        cblas_##lapack_prefix##trmv( \
+            DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, \
+            tmpC.dim0, tmpC.data, tmpC.dim0, \
+            tmpX.data, 1 \
+        ); \
         \
         type##MatCopy( tmpX, dst ); \
         \
         type##MatFree( DefaultAllocator, &tmpC ); \
         type##MatFree( DefaultAllocator, &tmpX ); \
     }
+
+/* in-place covariance scaling of input vector */
+#define MAT_COVSCALEIP(type, lapack_prefix) void \
+    type##MatCovScaleIP( type##Mat cov, type##Mat x ) \
+    { \
+        ASSERT( cov.dim0 == cov.dim1 ); \
+        ASSERT( x.dim0 == 1 || x.dim1 == 1 ); \
+        ASSERT( cov.dim0 == x.dim0 ); \
+        \
+        type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
+        type##MatCopy( cov, tmpC ); \
+        \
+        LAPACKE_##lapack_prefix##potrf( \
+            DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 \
+        ); \
+        \
+        cblas_##lapack_prefix##trmv( \
+            DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, \
+            tmpC.dim0, tmpC.data, tmpC.dim0, \
+            x.data, 1 \
+        ); \
+        \
+        type##MatFree( DefaultAllocator, &tmpC ); \
+    }
+
 
 #endif
 
@@ -379,25 +427,37 @@ MAT_GETCOL(f64);
 MAT_SETROW(f64);
 MAT_GETROW(f64);
 
-MAT_SCALE(f64, d);
+MAT_SCALE(f64, d);             // tested
 MAT_VNORM(f64, d);             // tested
 MAT_ADD(f64, f64Add);          // tested
 MAT_SUB(f64, f64Sub);          // tested
 MAT_MUL(f64, d);               // tested
-MAT_ELOP(f64, Mul, f64Mul);
-MAT_ELOP(f64, Div, f64Div);
+MAT_ELOP(f64, Mul, f64Mul);    // tested
+MAT_ELOP(f64, Div, f64Div);    // tested
 MAT_TRACE(f64);                // tested
-MAT_T(f64);
+MAT_T(f64);                    // tested
 MAT_INV(f64, d);               // tested
 MAT_DET(f64, d);               // tested
 
-MAT_COVSCALE(f64, d);
+MAT_COVSCALE(f64, d);          // tested
+MAT_COVSCALEIP(f64, d);        // tested
 
 
 #if TEST
 void test_scale()
 {
+    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
     
+    for ( u32 i=0; i<9; ++i ) {
+        a.data[i] = (f64) i;
+        b.data[i] = (f64) 2*i;
+    }
+    
+    f64MatScale( a, 2, c );
+    
+    TEST_ASSERT( f64MatEqual( c, b, EPS ) );
 }
 #endif
 
@@ -416,6 +476,7 @@ void test_vnorm()
     f64MatFree( DefaultAllocator, &f );
 }
 #endif
+
 
 #if TEST
 void test_add_sub_mul()
@@ -468,7 +529,39 @@ void test_add_sub_mul()
 #if TEST
 void test_element_wise_ops()
 {
+    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
     
+    a.data[0] = 1;   a.data[1] = 0;   a.data[2] = 0.5;
+    a.data[3] = 0;   a.data[4] = 0.5; a.data[5] = 0;
+    a.data[6] = 0.5; a.data[7] = 0;   a.data[8] = 2;
+    
+    f64MatSet( b, 2.0 );
+    
+    // add
+    f64MatElMul( a, b, c );
+    
+    e.data[0] = 2;  e.data[1] = 0; e.data[2] = 1;
+    e.data[3] = 0;  e.data[4] = 1; e.data[5] = 0;
+    e.data[6] = 1;  e.data[7] = 0; e.data[8] = 4;
+    
+    TEST_ASSERT( f64MatEqual( c, e, 1E-4 ) );
+    
+    // sub
+    f64MatElDiv( a, b, c );
+    
+    e.data[0] = 0.5;  e.data[1] = 0;    e.data[2] = 0.25;
+    e.data[3] = 0;    e.data[4] = 0.25; e.data[5] = 0;
+    e.data[6] = 0.25; e.data[7] = 0;    e.data[8] = 1;
+    
+    TEST_ASSERT( f64MatEqual( c, e, EPS ) );
+    
+    f64MatFree( DefaultAllocator, &a );
+    f64MatFree( DefaultAllocator, &b );
+    f64MatFree( DefaultAllocator, &c );
+    f64MatFree( DefaultAllocator, &e );
 }
 #endif
 
@@ -515,7 +608,22 @@ void test_inverse()
 #if TEST
 void test_transpose()
 {
+    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
     
+    for ( u32 i=0; i<9; ++i ) {
+        a.data[i] = (f64) i;
+    }
+    for ( u32 i=0; i<a.dim0; ++i ) {
+        for ( u32 j=0; j<a.dim1; ++j ) {
+            b.data[ j*b.dim0 + i ] = a.data[ i*a.dim0 + j ];
+        }
+    }
+    
+    f64MatT( a, c );
+    
+    TEST_ASSERT( f64MatEqual( c, b, EPS ) );
 }
 #endif
 
@@ -561,6 +669,12 @@ void test_covariance_scaling()
     x.data[0] = 2.500000; x.data[1] = 1.414214; x.data[2] = 3.968627;
     
     TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
+    
+    x.data[0] = 1; x.data[1] = 2; x.data[2] = 3;
+    
+    f64MatCovScaleIP( f, x );
+    
+    TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
 }
 #endif
 
@@ -570,6 +684,30 @@ MAT_DECL(i32);
 MAT_MAKE(i32);
 MAT_FREE(i32);
 MAT_PRINT(i32, i32Print);
+
+
+// TODO(jonas): library initialization
+
+void InitializeMatrices( u32 numThreads, char threadScope )
+{
+    
+    switch( threadScope ) {
+        case 'g':
+        case 'G': {
+            MKL_Set_Num_Threads( numThreads );
+            break;
+        }
+        case 'l':
+        case 'L': {
+            MKL_Set_Num_Threads_Local( numThreads );
+            break;
+        }
+        default: {
+            
+        }
+    }
+    
+}
 
 
 #undef EPS
