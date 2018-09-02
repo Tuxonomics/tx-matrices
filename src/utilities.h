@@ -1,3 +1,8 @@
+// Author:  https://github.com/Tuxonomics
+// Created: Aug, 2018
+//
+// Parts taken from https://github.com/kai-language/kai-c.
+//
 
 #include <stdio.h>
 #include <stdint.h>
@@ -204,6 +209,31 @@ struct Allocator {
     void *payload;
 };
 
+
+void *Alloc(Allocator al, size_t count) {
+    return al.func(al.payload, AT_Alloc, count, 0, NULL);
+}
+
+void *Calloc(Allocator al, size_t count, size_t size) {
+    return al.func(al.payload, AT_Calloc, count, size, NULL);
+}
+
+void *Free(Allocator al, void* ptr) {
+    if (ptr)
+        al.func(al.payload, AT_Free, 0, 0, ptr);
+    return NULL;
+}
+
+void *FreeAll(Allocator al) {
+    al.func(al.payload, AT_FreeAll, 0, 0, NULL);
+    return NULL;
+}
+
+void *Realloc(Allocator al, void *ptr, size_t size, size_t oldsize) {
+    return al.func(al.payload, AT_Realloc, size, oldsize, ptr);
+}
+
+
 void *checkedCalloc(size_t num_elems, size_t elem_size) {
     void *ptr = calloc(num_elems, elem_size);
     if (!ptr) {
@@ -258,21 +288,23 @@ typedef struct Arena {
     u64 len;
 } Arena;
 
-
 void *arenaAllocFunc(void *payload, enum AllocType alType, size_t count, size_t size, void *old) {
-//ALLOC_FUNC(arenaAllocFunc) {
     Arena *arena = (Arena *) payload;
     
     switch (alType) {
         case AT_Alloc: {
-            if (arena->len + size > arena->cap) {
+            if (arena->len + count > arena->cap) {
                 return NULL;
             }
             u8 *ptr = &arena->raw[arena->len];
-            arena->len += size;
+            arena->len += count;
             return ptr;
         }
-        case AT_Calloc: {break;}
+        case AT_Calloc: {
+            u8 * ptr = arenaAllocFunc( payload, AT_Alloc, count * size, 0, old );
+            memset( ptr, 0, (count * size) );
+            return ptr;
+        }
         case AT_Free:
         case AT_FreeAll: {
             arena->len = 0;
@@ -286,30 +318,65 @@ void *arenaAllocFunc(void *payload, enum AllocType alType, size_t count, size_t 
     return NULL;
 }
 
-
-
-void *Alloc(Allocator al, size_t count) {
-    return al.func(al.payload, AT_Alloc, count, 0, NULL);
+Allocator ArenaAllocatorMake(Arena *arena) {
+    Allocator al;
+    al.func    = arenaAllocFunc;
+    al.payload = arena;
+    return al;
 }
 
-void *Calloc(Allocator al, size_t count, size_t size) {
-    return al.func(al.payload, AT_Calloc, count, size, NULL);
+void ArenaInit(Arena *arena, Allocator al, u64 size) {
+    arena->allocator = al;
+    arena->raw = Alloc(al, size);
+    arena->cap = size;
+    arena->len = 0;
 }
 
-void *Free(Allocator al, void* ptr) {
-    if (ptr)
-        al.func(al.payload, AT_Free, 0, 0, ptr);
-    return NULL;
+void ArenaDefaultInit(Arena *arena, u64 size) {
+    ArenaInit(arena, DefaultAllocator, size);
 }
 
-void *FreeAll(Allocator al) {
-    al.func(al.payload, AT_FreeAll, 0, 0, NULL);
-    return NULL;
+void ArenaDestroy(Arena *arena) {
+    ASSERT( arena->raw );
+    Free( arena->allocator, arena->raw );
 }
 
-void *Realloc(Allocator al, void *ptr, size_t size, size_t oldsize) {
-    return al.func(al.payload, AT_Realloc, size, oldsize, ptr);
+void ArenaDestroyResize( Arena *arena, u64 size ) {
+    ArenaDestroy( arena );
+    
+    arena->raw = Alloc( arena->allocator, size );
+    arena->cap = size;
+    arena->len = 0;
 }
+
+
+#if TEST
+void test_arena()
+{
+    u32 aSize = 2;
+    
+    Arena arena;
+    ArenaDefaultInit( &arena, aSize * sizeof( u32 ) );
+    
+    Allocator arenaAllocator = ArenaAllocatorMake( &arena );
+    
+    u32 *a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    u32 *b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+    
+    TEST_ASSERT( ((u64) b - (u64) a) == 4 );
+    
+    u32 bSize = 3;
+    
+    ArenaDestroyResize( &arena, bSize * sizeof( u32 ) );
+    
+    a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+    
+    u32 *c = Alloc(  arenaAllocator, sizeof( u32 ) );
+    
+    TEST_ASSERT( ((u64) c - (u64) b) == 4 );
+}
+#endif
 
 
 void PrintBits(u64 const size, void const * const ptr) {

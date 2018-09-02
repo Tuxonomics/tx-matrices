@@ -8,31 +8,28 @@
 int main( int argn, const char **args )
 {
     
-    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
+    u32 aSize = 2;
     
-    a.data[0] = 1; a.data[1] = 0;   a.data[2] = 0.5;
-    a.data[3] = 0; a.data[4] = 0.5; a.data[5] = 0;
-    a.data[6] = 0; a.data[7] = 0;   a.data[8] = 2;
+    Arena arena;
+    ArenaDefaultInit( &arena, aSize * sizeof( u32 ) );
     
-    f64MatSet( b, 2.0 );
+    Allocator arenaAllocator = ArenaAllocatorMake( &arena );
     
-    // add
-    f64MatElMul( a, b, c );
+    u32 *a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    u32 *b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
     
-    f64MatPrint( c, "c" );
+    ASSERT( ((u64) b - (u64) a) == 4 );
     
-    e.data[0] = 2;  e.data[1] = 0; e.data[2] = 1;
-    e.data[3] = 0;  e.data[4] = 1; e.data[5] = 0;
-    e.data[6] = 0;  e.data[7] = 0; e.data[8] = 4;
+    u32 bSize = 3;
     
-    f64MatPrint( e, "e" );
+    ArenaDestroyResize( &arena, bSize * sizeof( u32 ) );
     
-    b32 yes = f64MatEqual( c, e, 1 );
+    a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
     
-    printf("out = %d\n", yes );
+    u32 *c = Alloc( arenaAllocator, sizeof( u32 ) );
+    
+    ASSERT( ((u64) c - (u64) b) == 4 );
     
     
     return 0;

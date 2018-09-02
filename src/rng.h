@@ -1,4 +1,6 @@
-
+// Author:  https://github.com/Tuxonomics
+// Created: Aug, 2018
+//
 
 /* Convert u64 to uniform f64. See http://xoshiro.di.unimi.it.
 This will cut the number of possible values in half as the lowest significant

@@ -4,13 +4,47 @@
 // Matrix abstraction for BLAS/LAPACK routines in C99. All matrices are of
 // row-major ordering.
 
+
 #include "mkl.h"
 
 
+Arena     ScratchArena;
+Allocator ScratchBuffer;
+
+// TODO(jonas): library initialization
+
+void InitializeMatrices( u32 numThreads, char threadScope )
+{
+    
+    ArenaInit( &ScratchArena, DefaultAllocator, MB(1) );
+    ScratchBuffer = ArenaAllocatorMake( &ScratchArena );
+    
+    switch( threadScope ) {
+        case 'g':
+        case 'G': {
+            MKL_Set_Num_Threads( numThreads );
+            break;
+        }
+        case 'l':
+        case 'L': {
+            MKL_Set_Num_Threads_Local( numThreads );
+            break;
+        }
+        default: {
+            
+        }
+    }
+    
+}
+
+
+void TerminateMatrices( void )
+{
+    ArenaDestroy( &ScratchArena );
+}
+
+
 #define EPS 1E-10
-
-#ifndef MAT_DECL
-
 
 
 #define DEFAULT_MAJOR CblasRowMajor
@@ -22,9 +56,8 @@
 
 // TODO(jonas): how to handle inf and nan? LAPACK routines do not handle them
 // TODO(jonas): intel-based default allocator and arena for alignment
-// TODO(jonas): make use of scratch buffer to support even larger matrices, and
-// to not alter the input
 // TODO(jonas): QR decomposition
+
 
 #define MAT_DECL(type) typedef struct type##Mat type##Mat; \
     struct type##Mat { \
@@ -287,13 +320,15 @@
     }
 
 /* matrix inverse */
-// TODO(jonas): use scratch buffer
 #define MAT_INV(type, lapack_prefix) i32 \
     type##MatInv(type##Mat m, type##Mat dst) \
     {\
         ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         \
-        type##Mat tmp = type##MatMake( DefaultAllocator, m.dim0, m.dim1 ); \
+        if ( ScratchArena.cap < (m.dim0 * m.dim1) ) { \
+            ArenaDestroyResize( &ScratchArena, (m.dim0 * m.dim1 * sizeof(type)) ); \
+        } \
+        type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim1 ); \
         type##MatCopy( m, tmp ); \
         u32 n = tmp.dim0; \
         i32 ipiv[n+1]; \
@@ -310,19 +345,21 @@
             DEFAULT_MAJOR, n, tmp.data, n, ipiv \
         ); \
         type##MatCopy( tmp, dst ); \
-        type##MatFree( DefaultAllocator, &tmp ); \
+        FreeAll( ScratchBuffer ); \
         \
         return ret; \
     }
 
 // TODO(jonas): maybe use QR decomposition for determinant to improve accuracy
-// TODO(jonas): switch to scratch buffer
 #define MAT_DET(type, lapack_prefix) type \
     type##MatDet(type##Mat m) \
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
-        type##Mat tmp = type##MatMake( DefaultAllocator, m.dim0, m.dim0 ); \
+        if ( ScratchArena.cap < (m.dim0 * m.dim1) ) { \
+            ArenaDestroyResize( &ScratchArena, (m.dim0 * m.dim1 * sizeof(type)) ); \
+        } \
+        type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim0 ); \
         type##MatCopy( m, tmp ); \
         \
         u32 n = tmp.dim0; \
@@ -347,13 +384,12 @@
             } \
         } \
         \
-        type##MatFree( DefaultAllocator, &tmp ); \
+        FreeAll( ScratchBuffer ); \
         \
         return det * detp; \
     }
 
 /* scale input vector by covariance matrix m, m can be upper triangular */
-// TODO(jonas): switch to scratch buffer
 #define MAT_COVSCALE(type, lapack_prefix) void \
     type##MatCovScale( type##Mat cov, type##Mat x, type##Mat dst ) \
     { \
@@ -362,6 +398,10 @@
         ASSERT( cov.dim0 == x.dim0 ); \
         ASSERT( x.dim0 == dst.dim0 && dst.dim1 == 1 ); \
         \
+        u32 fullScratch = cov.dim0 * cov.dim1 + x.dim0 * x.dim1; \
+        if ( ScratchArena.cap < fullScratch ) { \
+            ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
+        } \
         type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
         type##Mat tmpX = type##MatMake( DefaultAllocator, x.dim0,   x.dim1 ); \
         type##MatCopy( cov, tmpC ); \
@@ -379,8 +419,7 @@
         \
         type##MatCopy( tmpX, dst ); \
         \
-        type##MatFree( DefaultAllocator, &tmpC ); \
-        type##MatFree( DefaultAllocator, &tmpX ); \
+        FreeAll( ScratchBuffer ); \
     }
 
 /* in-place covariance scaling of input vector */
@@ -391,6 +430,10 @@
         ASSERT( x.dim0 == 1 || x.dim1 == 1 ); \
         ASSERT( cov.dim0 == x.dim0 ); \
         \
+        u32 fullScratch = cov.dim0 * cov.dim1; \
+        if ( ScratchArena.cap < fullScratch ) { \
+            ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
+        } \
         type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
         type##MatCopy( cov, tmpC ); \
         \
@@ -404,11 +447,8 @@
             x.data, 1 \
         ); \
         \
-        type##MatFree( DefaultAllocator, &tmpC ); \
+        FreeAll( ScratchBuffer ); \
     }
-
-
-#endif
 
 
 MAT_DECL(f64);
@@ -584,6 +624,8 @@ void test_trace()
 #if TEST
 void test_inverse()
 {
+    InitializeMatrices( 1, 'l' );
+    
     f64Mat c = f64MatZeroMake( DefaultAllocator, 3, 3 );
     f64Mat e = f64MatZeroMake( DefaultAllocator, 3, 3 );
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
@@ -601,6 +643,8 @@ void test_inverse()
     f64MatFree( DefaultAllocator, &c );
     f64MatFree( DefaultAllocator, &e );
     f64MatFree( DefaultAllocator, &f );
+    
+    TerminateMatrices();
 }
 #endif
 
@@ -631,6 +675,8 @@ void test_transpose()
 #if TEST
 void test_determinant()
 {
+    InitializeMatrices( 1, 'l' );
+    
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
 
     f.data[0] = 0.3306201;
@@ -646,6 +692,8 @@ void test_determinant()
     TEST_ASSERT( f64Equal( f64MatDet(f), -0.130408, 1E-6 ) );
 
     f64MatFree( DefaultAllocator, &f );
+    
+    TerminateMatrices();
 }
 #endif
 
@@ -653,6 +701,8 @@ void test_determinant()
 #if TEST
 void test_covariance_scaling()
 {
+    InitializeMatrices( 1, 'l' );
+    
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
     
     f.data[0] = 1; f.data[1] = 0;   f.data[2] = 0.5;
@@ -675,6 +725,8 @@ void test_covariance_scaling()
     f64MatCovScaleIP( f, x );
     
     TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
+    
+    TerminateMatrices();
 }
 #endif
 
@@ -685,29 +737,6 @@ MAT_MAKE(i32);
 MAT_FREE(i32);
 MAT_PRINT(i32, i32Print);
 
-
-// TODO(jonas): library initialization
-
-void InitializeMatrices( u32 numThreads, char threadScope )
-{
-    
-    switch( threadScope ) {
-        case 'g':
-        case 'G': {
-            MKL_Set_Num_Threads( numThreads );
-            break;
-        }
-        case 'l':
-        case 'L': {
-            MKL_Set_Num_Threads_Local( numThreads );
-            break;
-        }
-        default: {
-            
-        }
-    }
-    
-}
 
 
 #undef EPS
