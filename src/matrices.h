@@ -402,8 +402,8 @@ void TerminateMatrices( void )
         if ( ScratchArena.cap < fullScratch ) { \
             ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
         } \
-        type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
-        type##Mat tmpX = type##MatMake( DefaultAllocator, x.dim0,   x.dim1 ); \
+        type##Mat tmpC = type##MatMake( ScratchBuffer, cov.dim0, cov.dim0 ); \
+        type##Mat tmpX = type##MatMake( ScratchBuffer, x.dim0,   x.dim1 ); \
         type##MatCopy( cov, tmpC ); \
         type##MatCopy( x, tmpX ); \
         \
@@ -434,7 +434,7 @@ void TerminateMatrices( void )
         if ( ScratchArena.cap < fullScratch ) { \
             ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
         } \
-        type##Mat tmpC = type##MatMake( DefaultAllocator, cov.dim0, cov.dim0 ); \
+        type##Mat tmpC = type##MatMake( ScratchBuffer, cov.dim0, cov.dim0 ); \
         type##MatCopy( cov, tmpC ); \
         \
         LAPACKE_##lapack_prefix##potrf( \
