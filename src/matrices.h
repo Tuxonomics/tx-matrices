@@ -16,7 +16,7 @@ Allocator ScratchBuffer;
 void InitializeMatrices( u32 numThreads, char threadScope )
 {
     
-    ArenaInit( &ScratchArena, DefaultAllocator, MB(1) );
+    ArenaInit( &ScratchArena, DefaultAllocator, KB(1) );
     ScratchBuffer = ArenaAllocatorMake( &ScratchArena );
     
     switch( threadScope ) {

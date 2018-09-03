@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DDB3978D2134784B00A8E6BB /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = DDB3978B2134784B00A8E6BB /* main.c */; };
+		DDB3978D2134784B00A8E6BB /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = DDB3978B2134784B00A8E6BB /* main.c */; settings = {COMPILER_FLAGS = "-O3"; }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */

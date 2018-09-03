@@ -420,6 +420,9 @@ void type##Print( type a ) { printf("%.4f", a); }
 #define EQUAL(type) Inline \
 b32 type##Equal( type a, type b, type eps ) { return fabs( a - b ) < eps; }
 
+#define COPY(type) Inline \
+void type##Copy( type src, type *dst ) { *dst = src; }
+
 
 #define BASIC_FUNCS(t) \
     ADD(t); \
@@ -429,7 +432,8 @@ b32 type##Equal( type a, type b, type eps ) { return fabs( a - b ) < eps; }
     NEG(t); \
     CONST(t); \
     PRINT(t); \
-    EQUAL(t);
+    EQUAL(t); \
+    COPY(t)
 
 
 BASIC_FUNCS(f32);
@@ -438,13 +442,20 @@ BASIC_FUNCS(f64);
 void i32Print( i32 a ) { printf("%d\n", a); }
 
 #if TEST
-void test_f64Equal()
+void test_basic_funcs()
 {
     TEST_ASSERT( f32Equal( 1.0f, 0.51f, 0.5 ) );
     TEST_ASSERT( ! f32Equal( 0.0f, 0.01f, 1E-2 ) );
 
     TEST_ASSERT( f64Equal( 1, 0.51, 0.5 ) );
     TEST_ASSERT( ! f64Equal( 0.0, 0.01, 1E-2 ) );
+    
+    f64 a = 5;
+    f64 b = 3;
+    
+    f64Copy( a, &b );
+    TEST_ASSERT( f64Equal(a, b, 1E-10) );
+    
 }
 #endif
 
@@ -462,5 +473,6 @@ void test_f64Equal()
 
 
 #include "rng.h"
+#include "matrices.h"
 
 

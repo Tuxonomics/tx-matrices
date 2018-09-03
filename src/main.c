@@ -1,36 +1,39 @@
 
 #include "utilities.h"
-#include "matrices.h"
 #include <math.h>
+#include <time.h>
 
 
 #ifndef TEST
 int main( int argn, const char **args )
 {
     
-    u32 aSize = 2;
+    InitializeMatrices( 4, 'l' );
     
-    Arena arena;
-    ArenaDefaultInit( &arena, aSize * sizeof( u32 ) );
+    clock_t t0;
+    clock_t t1;
+    f64 t;
     
-    Allocator arenaAllocator = ArenaAllocatorMake( &arena );
+    u32 N = 4000;
     
-    u32 *a = Alloc(  arenaAllocator, sizeof( u32 ) );
-    u32 *b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+    f64Mat a = f64MatMake( DefaultAllocator, N, N );
+    f64Mat b = f64MatMake( DefaultAllocator, N, N );
+    f64Mat c = f64MatMake( DefaultAllocator, N, N );
     
-    ASSERT( ((u64) b - (u64) a) == 4 );
+    for ( u32 i=0; i<(N*N); ++i ) {
+        a.data[i] = (f64) i;
+        b.data[i] = (f64) 2*i;
+    }
     
-    u32 bSize = 3;
+    t0 = clock();
     
-    ArenaDestroyResize( &arena, bSize * sizeof( u32 ) );
+    f64MatMul( a, b, c );
     
-    a = Alloc(  arenaAllocator, sizeof( u32 ) );
-    b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+    t1 = clock();
+    t = (f64) (t1 - t0) / CLOCKS_PER_SEC;
+    printf("MatMul in: %.4f sec.\n", t);
     
-    u32 *c = Alloc( arenaAllocator, sizeof( u32 ) );
-    
-    ASSERT( ((u64) c - (u64) b) == 4 );
-    
+    printf( "%.4f\n", c.data[0] );
     
     return 0;
 }
