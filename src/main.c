@@ -1,7 +1,35 @@
 
-#include "utilities.h"
-#include <math.h>
+//#include "utilities.h"
+//#include <math.h>
+#include "matrices.h"
 #include <time.h>
+
+
+void InitializeMatrices( u32 numThreads, char threadScope )
+{
+    switch( threadScope ) {
+        case 'g':
+        case 'G': {
+            MKL_Set_Num_Threads( numThreads );
+            break;
+        }
+        case 'l':
+        case 'L': {
+            MKL_Set_Num_Threads_Local( numThreads );
+            break;
+        }
+        default: {
+
+        }
+    }
+
+}
+
+
+void TerminateMatrices( void )
+{
+    ArenaDestroy( &ScratchArena );
+}
 
 
 #ifndef TEST

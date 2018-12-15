@@ -23,9 +23,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		DDB3978A2134784B00A8E6BB /* rng.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = rng.h; path = src/rng.h; sourceTree = "<group>"; };
 		DDB3978B2134784B00A8E6BB /* main.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = main.c; path = src/main.c; sourceTree = "<group>"; };
-		DDB3978C2134784B00A8E6BB /* utilities.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = utilities.h; path = src/utilities.h; sourceTree = "<group>"; };
 		DDB3979021347E8B00A8E6BB /* matrices.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = matrices.h; path = src/matrices.h; sourceTree = "<group>"; };
 		DDEDC3E821347741000FF4B6 /* Matrices */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = Matrices; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -45,8 +43,6 @@
 			isa = PBXGroup;
 			children = (
 				DDB3979021347E8B00A8E6BB /* matrices.h */,
-				DDB3978A2134784B00A8E6BB /* rng.h */,
-				DDB3978C2134784B00A8E6BB /* utilities.h */,
 			);
 			name = src;
 			sourceTree = "<group>";

@@ -1,50 +1,449 @@
-// Author:  https://github.com/Tuxonomics
-// Created: Aug, 2018
-//
-// Matrix abstraction for BLAS/LAPACK routines in C99. All matrices are of
-// row-major ordering.
+
+
+
+// TODO(jonas): QR decomposition
 
 
 #include "mkl.h"
 
 
-Arena     ScratchArena;
-Allocator ScratchBuffer;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// TODO(jonas): library initialization
+#include <stdio.h>
+#include <execinfo.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include <time.h>
+#include <math.h>
 
-void InitializeMatrices( u32 numThreads, char threadScope )
-{
+
+#ifndef TUXONOMICS_BASIC_TYPES
+    #define TUXONOMICS_BASIC_TYPES
+
+    typedef uint8_t  u8;
+    typedef uint16_t u16;
+    typedef uint32_t u32;
+    typedef uint64_t u64;
+
+    typedef int8_t  i8;
+    typedef int16_t i16;
+    typedef int32_t i32;
+    typedef int64_t i64;
+
+    typedef float  f32;
+    typedef double f64;
+
+    typedef i8  b8;
+    typedef i32 b32;
+#endif
+
+
+#ifndef TUXONOMICS_UTILITIES
+
+    #define TUXONOMICS_UTILITIES
     
-    ArenaInit( &ScratchArena, DefaultAllocator, KB(1) );
-    ScratchBuffer = ArenaAllocatorMake( &ScratchArena );
+    #if defined(_MSC_VER)
+        #if _MSC_VER < 1300
+            #define DEBUG_TRAP() __asm int 3
+        #else
+            #define DEBUG_TRAP() __debugbreak()
+        #endif
+    #else
+        #define DEBUG_TRAP() __builtin_trap()
+    #endif
+        
+    #ifndef TEST
+    #if !defined(RELEASE) && !defined(ASSERTS)
+        #define ASSERT_MSG_VA(cond, msg, ...) do { \
+            if (!(cond)) { \
+            assertHandler(__FILE__, (i32)__LINE__, msg, __VA_ARGS__); \
+            DEBUG_TRAP(); \
+            } \
+            } while(0)
     
-    switch( threadScope ) {
-        case 'g':
-        case 'G': {
-            MKL_Set_Num_Threads( numThreads );
-            break;
+        #define ASSERT_MSG(cond, msg) ASSERT_MSG_VA(cond, msg, 0)
+    
+        #define ASSERT(cond) ASSERT_MSG_VA(cond, 0, 0)
+        #define PANIC(msg) ASSERT_MSG_VA(0, msg, 0)
+        #define UNIMPLEMENTED() ASSERT_MSG_VA(0, "unimplemented", 0);
+    #else
+        #define ASSERT_MSG_VA(cond, msg, ...)
+        #define ASSERT_MSG(cond, msg)
+        #define ASSERT(cond)
+        #define PANIC(msg)
+        #define UNIMPLEMENTED()
+    #endif
+    #endif
+        
+        
+    #if !defined(Inline)
+        #if defined(_MSC_VER)
+            #if _MSC_VER < 1300
+                #define Inline
+            #else
+                #define Inline __forceinline
+            #endif
+        #else
+            #define Inline __attribute__ ((__always_inline__))
+        #endif
+    #endif
+        
+        
+    #if !defined(_Threadlocal)
+        #if defined(_MSC_VER)
+            #define _Threadlocal __declspec( thread )
+        #else
+            #define _Threadlocal __thread
+        #endif
+    #endif
+        
+        
+    void Backtrace() {
+    #define BACKTRACE_MAX_STACK_DEPTH 50
+    #if SYSTEM_POSIX
+        void* callstack[BACKTRACE_MAX_STACK_DEPTH];
+        int i, frames = backtrace(callstack, BACKTRACE_MAX_STACK_DEPTH);
+        char** strs = backtrace_symbols(callstack, frames);
+        for (i = 0; i < frames; ++i) {
+            fprintf(stderr, "%s\n", strs[i]);
         }
-        case 'l':
-        case 'L': {
-            MKL_Set_Num_Threads_Local( numThreads );
-            break;
+        free(strs);
+    #elif SYSTEM_WINDOWS
+        UNIMPLEMENTED();
+    #endif
+    }
+        
+    void assertHandler(char const *file, i32 line, char const *msg, ...) {
+        va_list args;
+        va_start(args, msg);
+        Backtrace();
+        
+        if (msg) {
+            fprintf(stderr, "Assert failure: %s:%d: ", file, line);
+            vfprintf(stderr, msg, args);
+            fprintf(stderr, "\n");
+        } else {
+            fprintf(stderr, "Assert failure: %s:%d\n", file, line);
         }
-        default: {
-            
+        va_end(args);
+    }
+
+#endif
+
+
+#ifndef MIN
+    #define MIN(x, y) ((x) <= (y) ? (x) : (y))
+    #define MAX(x, y) ((x) >= (y) ? (x) : (y))
+#endif
+
+
+#ifndef TUXONOMICS_ALLOCATOR
+    #define TUXONOMICS_ALLOCATOR
+
+    typedef enum AllocType {
+        AT_Alloc,
+        AT_Calloc,
+        AT_Realloc,
+        AT_Free,
+        AT_FreeAll,
+    } AllocType;
+
+
+    #define ALLOC_FUNC(name) void *name(void *payload, enum AllocType alType, size_t count, size_t size, void *old)
+    typedef void *allocFunc(void *payload, enum AllocType alType, size_t count, size_t size, void *old);
+
+
+    typedef struct Allocator Allocator;
+    struct Allocator {
+        allocFunc *func;
+        void *payload;
+    };
+
+
+    void *Alloc(Allocator al, size_t count) {
+        return al.func(al.payload, AT_Alloc, count, 0, NULL);
+    }
+
+    void *Calloc(Allocator al, size_t count, size_t size) {
+        return al.func(al.payload, AT_Calloc, count, size, NULL);
+    }
+
+    void *Free(Allocator al, void* ptr) {
+        if (ptr)
+            al.func(al.payload, AT_Free, 0, 0, ptr);
+        return NULL;
+    }
+
+    void *FreeAll(Allocator al) {
+        al.func(al.payload, AT_FreeAll, 0, 0, NULL);
+        return NULL;
+    }
+
+    void *Realloc(Allocator al, void *ptr, size_t size, size_t oldsize) {
+        return al.func(al.payload, AT_Realloc, size, oldsize, ptr);
+    }
+
+
+    void *checkedCalloc(size_t num_elems, size_t elem_size) {
+        void *ptr = calloc(num_elems, elem_size);
+        if (!ptr) {
+            perror("calloc failed");
+            exit(1);
+        }
+        return ptr;
+    }
+
+    void *checkedRealloc(void *ptr, size_t num_bytes) {
+        ptr = realloc(ptr, num_bytes);
+        if (!ptr) {
+            perror("realloc failed");
+            exit(1);
+        }
+        return ptr;
+    }
+
+    void *checkedMalloc(size_t num_bytes) {
+        void *ptr = malloc(num_bytes);
+        if (!ptr) {
+            perror("malloc failed");
+            exit(1);
+        }
+        return ptr;
+    }
+
+    void *heapAllocFunc(void *payload, enum AllocType alType, size_t count, size_t size, void *old) {
+        switch (alType) {
+            case AT_Alloc:
+                return checkedMalloc(count);
+            case AT_Calloc:
+                return checkedCalloc(count, size);
+            case AT_Free:
+            case AT_FreeAll: {
+                free(old);
+                return NULL;
+            }
+            case AT_Realloc:
+                return checkedRealloc(old, count);
+        }
+        return NULL;
+    }
+
+    Allocator DefaultAllocator = { .func = heapAllocFunc, .payload = 0 };
+
+
+    typedef struct Arena {
+        Allocator allocator;
+        u8  *raw;
+        u64 cap;
+        u64 len;
+    } Arena;
+
+    void *arenaAllocFunc(void *payload, enum AllocType alType, size_t count, size_t size, void *old) {
+        Arena *arena = (Arena *) payload;
+
+        switch (alType) {
+            case AT_Alloc: {
+                if (arena->len + count > arena->cap) {
+                    return NULL;
+                }
+                u8 *ptr = &arena->raw[arena->len];
+                arena->len += count;
+                return ptr;
+            }
+            case AT_Calloc: {
+                u8 * ptr = arenaAllocFunc( payload, AT_Alloc, count * size, 0, old );
+                memset( ptr, 0, (count * size) );
+                return ptr;
+            }
+            case AT_Free:
+            case AT_FreeAll: {
+                arena->len = 0;
+                break;
+            }
+            case AT_Realloc: {
+                break;
+            }
+        }
+
+        return NULL;
+    }
+
+    Allocator ArenaAllocatorMake(Arena *arena) {
+        Allocator al;
+        al.func    = arenaAllocFunc;
+        al.payload = arena;
+        return al;
+    }
+
+    void ArenaInit(Arena *arena, Allocator al, u64 size) {
+        arena->allocator = al;
+        arena->raw = Alloc(al, size);
+        arena->cap = size;
+        arena->len = 0;
+    }
+
+    void ArenaDefaultInit(Arena *arena, u64 size) {
+        ArenaInit(arena, DefaultAllocator, size);
+    }
+
+    void ArenaDestroy(Arena *arena) {
+        ASSERT( arena->raw );
+        Free( arena->allocator, arena->raw );
+    }
+
+    void ArenaDestroyResize( Arena *arena, u64 size ) {
+        ArenaDestroy( arena );
+
+        arena->raw = Alloc( arena->allocator, size );
+        arena->cap = size;
+        arena->len = 0;
+    }
+
+    void ArenaInitAndAllocator( Allocator alOnArena, Arena *arena, Allocator *al, u64 size )
+    {
+        ArenaInit( arena, alOnArena, size );
+        *al = ArenaAllocatorMake( arena );
+    }
+
+    void ArenaAllocatorCheck( Arena *arena, Allocator *al, u64 size )
+    {
+        if ( arena->cap < size ) {
+            if ( arena->raw ) {
+                ArenaDestroyResize( arena, size );
+            }
+            else {
+                ArenaInitAndAllocator( DefaultAllocator, arena, al, size );
+            }
         }
     }
-    
+#endif
+
+#if TEST
+void test_arena()
+{
+    u32 aSize = 2;
+
+    Arena arena;
+    ArenaDefaultInit( &arena, aSize * sizeof( u32 ) );
+
+    Allocator arenaAllocator = ArenaAllocatorMake( &arena );
+
+    u32 *a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    u32 *b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+
+    TEST_ASSERT( ((u64) b - (u64) a) == 4 );
+
+    u32 bSize = 3;
+
+    ArenaDestroyResize( &arena, bSize * sizeof( u32 ) );
+
+    a = Alloc(  arenaAllocator, sizeof( u32 ) );
+    b = Calloc( arenaAllocator, 1, sizeof( u32 ) );
+
+    u32 *c = Alloc(  arenaAllocator, sizeof( u32 ) );
+
+    TEST_ASSERT( ((u64) c - (u64) b) == 4 );
 }
+#endif
+
+#ifndef BASIC_FUNCS
+
+    #define ADD(type) Inline \
+    type type##Add( type a, type b ) { return a + b; }
+
+    #define SUB(type) Inline \
+    type type##Sub( type a, type b ) { return a - b; }
+
+    #define MUL(type) Inline \
+    type type##Mul( type a, type b ) { return a * b; }
+
+    #define DIV(type) Inline \
+    type type##Div( type a, type b ) { return a / b; }
+
+    #define NEG(type) Inline \
+    type type##Neg( type a ) { return -a; }
+
+    #define CONST(type) Inline \
+    type type##Const( type a ) { return a; }
+
+    #define PRINT(type) Inline \
+    void type##Print( type a ) { printf("%.4f", a); }
+
+    #define EQUAL(type) Inline \
+    b32 type##Equal( type a, type b, type eps ) { return fabs( a - b ) < eps; }
+
+    #define COPY(type) Inline \
+    void type##Copy( type src, type *dst ) { *dst = src; }
 
 
-void TerminateMatrices( void )
+    #define BASIC_FUNCS(t) \
+        ADD(t); \
+        SUB(t); \
+        MUL(t); \
+        DIV(t); \
+        NEG(t); \
+        CONST(t); \
+        PRINT(t); \
+        EQUAL(t); \
+        COPY(t)
+
+
+    BASIC_FUNCS(f32);
+    BASIC_FUNCS(f64);
+
+
+    void i32Print( i32 a ) { printf("%d\n",   a); }
+
+
+    #undef ADD
+    #undef SUB
+    #undef MUL
+    #undef DIV
+    #undef NEG
+    #undef CONST
+    #undef PRINT
+    #undef EQUAL
+    #undef BASIC_FUNCS
+
+#endif
+
+
+#if TEST
+void test_basic_funcs()
+{
+    TEST_ASSERT( f32Equal( 1.0f, 0.51f, 0.5 ) );
+    TEST_ASSERT( ! f32Equal( 0.0f, 0.01f, 1E-2 ) );
+
+    TEST_ASSERT( f64Equal( 1, 0.51, 0.5 ) );
+    TEST_ASSERT( ! f64Equal( 0.0, 0.01, 1E-2 ) );
+
+    f64 a = 5;
+    f64 b = 3;
+
+    f64Copy( a, &b );
+    TEST_ASSERT( f64Equal(a, b, 1E-10) );
+
+}
+#endif
+
+
+Arena     ScratchArena  = {0};
+Allocator ScratchBuffer = {0};
+
+
+void ScratchBufferDestroy( void )
 {
     ArenaDestroy( &ScratchArena );
 }
 
 
-#define EPS 1E-10
+#ifndef EPS
+    #define EPS 1E-10
+#endif
 
 
 #define DEFAULT_MAJOR CblasRowMajor
@@ -52,11 +451,6 @@ void TerminateMatrices( void )
 #define TRANS CblasTrans
 #define UPPER CblasUpper
 #define LOWER CblasLower
-
-
-// TODO(jonas): how to handle inf and nan? LAPACK routines do not handle them
-// TODO(jonas): intel-based default allocator and arena for alignment
-// TODO(jonas): QR decomposition
 
 
 #define MAT_DECL(type) typedef struct type##Mat type##Mat; \
@@ -325,9 +719,9 @@ void TerminateMatrices( void )
     {\
         ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         \
-        if ( ScratchArena.cap < (m.dim0 * m.dim1) ) { \
-            ArenaDestroyResize( &ScratchArena, (m.dim0 * m.dim1 * sizeof(type)) ); \
-        } \
+        u32 scratchSize = m.dim0 * m.dim1 * sizeof(type); \
+        ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
+        \
         type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim1 ); \
         type##MatCopy( m, tmp ); \
         u32 n = tmp.dim0; \
@@ -356,9 +750,9 @@ void TerminateMatrices( void )
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
-        if ( ScratchArena.cap < (m.dim0 * m.dim1) ) { \
-            ArenaDestroyResize( &ScratchArena, (m.dim0 * m.dim1 * sizeof(type)) ); \
-        } \
+        u32 scratchSize = m.dim0 * m.dim1 * sizeof(type); \
+        ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
+        \
         type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim0 ); \
         type##MatCopy( m, tmp ); \
         \
@@ -389,67 +783,6 @@ void TerminateMatrices( void )
         return det * detp; \
     }
 
-/* scale input vector by covariance matrix m, m can be upper triangular */
-#define MAT_COVSCALE(type, lapack_prefix) void \
-    type##MatCovScale( type##Mat cov, type##Mat x, type##Mat dst ) \
-    { \
-        ASSERT( cov.dim0 == cov.dim1 ); \
-        ASSERT( x.dim0 == 1 || x.dim1 == 1 ); \
-        ASSERT( cov.dim0 == x.dim0 ); \
-        ASSERT( x.dim0 == dst.dim0 && dst.dim1 == 1 ); \
-        \
-        u32 fullScratch = cov.dim0 * cov.dim1 + x.dim0 * x.dim1; \
-        if ( ScratchArena.cap < fullScratch ) { \
-            ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
-        } \
-        type##Mat tmpC = type##MatMake( ScratchBuffer, cov.dim0, cov.dim0 ); \
-        type##Mat tmpX = type##MatMake( ScratchBuffer, x.dim0,   x.dim1 ); \
-        type##MatCopy( cov, tmpC ); \
-        type##MatCopy( x, tmpX ); \
-        \
-        LAPACKE_##lapack_prefix##potrf( \
-            DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 \
-        ); \
-        \
-        cblas_##lapack_prefix##trmv( \
-            DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, \
-            tmpC.dim0, tmpC.data, tmpC.dim0, \
-            tmpX.data, 1 \
-        ); \
-        \
-        type##MatCopy( tmpX, dst ); \
-        \
-        FreeAll( ScratchBuffer ); \
-    }
-
-/* in-place covariance scaling of input vector */
-#define MAT_COVSCALEIP(type, lapack_prefix) void \
-    type##MatCovScaleIP( type##Mat cov, type##Mat x ) \
-    { \
-        ASSERT( cov.dim0 == cov.dim1 ); \
-        ASSERT( x.dim0 == 1 || x.dim1 == 1 ); \
-        ASSERT( cov.dim0 == x.dim0 ); \
-        \
-        u32 fullScratch = cov.dim0 * cov.dim1; \
-        if ( ScratchArena.cap < fullScratch ) { \
-            ArenaDestroyResize( &ScratchArena, fullScratch * sizeof(type) ); \
-        } \
-        type##Mat tmpC = type##MatMake( ScratchBuffer, cov.dim0, cov.dim0 ); \
-        type##MatCopy( cov, tmpC ); \
-        \
-        LAPACKE_##lapack_prefix##potrf( \
-            DEFAULT_MAJOR, 'U', tmpC.dim0, tmpC.data, tmpC.dim0 \
-        ); \
-        \
-        cblas_##lapack_prefix##trmv( \
-            DEFAULT_MAJOR, CblasUpper, NO_TRANS, CblasNonUnit, \
-            tmpC.dim0, tmpC.data, tmpC.dim0, \
-            x.data, 1 \
-        ); \
-        \
-        FreeAll( ScratchBuffer ); \
-    }
-
 
 MAT_DECL(f64);
 MAT_MAKE(f64);
@@ -467,6 +800,7 @@ MAT_GETCOL(f64);
 MAT_SETROW(f64);
 MAT_GETROW(f64);
 
+
 MAT_SCALE(f64, d);             // tested
 MAT_VNORM(f64, d);             // tested
 MAT_ADD(f64, f64Add);          // tested
@@ -478,9 +812,6 @@ MAT_TRACE(f64);                // tested
 MAT_T(f64);                    // tested
 MAT_INV(f64, d);               // tested
 MAT_DET(f64, d);               // tested
-
-MAT_COVSCALE(f64, d);          // tested
-MAT_COVSCALEIP(f64, d);        // tested
 
 
 #if TEST
@@ -624,8 +955,6 @@ void test_trace()
 #if TEST
 void test_inverse()
 {
-    InitializeMatrices( 1, 'l' );
-    
     f64Mat c = f64MatZeroMake( DefaultAllocator, 3, 3 );
     f64Mat e = f64MatZeroMake( DefaultAllocator, 3, 3 );
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
@@ -644,7 +973,7 @@ void test_inverse()
     f64MatFree( DefaultAllocator, &e );
     f64MatFree( DefaultAllocator, &f );
     
-    TerminateMatrices();
+    ScratchBufferDestroy();
 }
 #endif
 
@@ -675,8 +1004,6 @@ void test_transpose()
 #if TEST
 void test_determinant()
 {
-    InitializeMatrices( 1, 'l' );
-    
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
 
     f.data[0] = 0.3306201;
@@ -693,43 +1020,9 @@ void test_determinant()
 
     f64MatFree( DefaultAllocator, &f );
     
-    TerminateMatrices();
+    ScratchBufferDestroy();
 }
 #endif
-
-
-#if TEST
-void test_covariance_scaling()
-{
-    InitializeMatrices( 1, 'l' );
-    
-    f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
-    
-    f.data[0] = 1; f.data[1] = 0;   f.data[2] = 0.5;
-    f.data[3] = 0; f.data[4] = 0.5; f.data[5] = 0;
-    f.data[6] = 0; f.data[7] = 0;   f.data[8] = 2;
-    
-    f64Mat x       = f64MatMake( DefaultAllocator, 3, 1 );
-    f64Mat xScaled = f64MatMake( DefaultAllocator, 3, 1 );
-
-    x.data[0] = 1; x.data[1] = 2; x.data[2] = 3;
-
-    f64MatCovScale( f, x, xScaled );
-
-    x.data[0] = 2.500000; x.data[1] = 1.414214; x.data[2] = 3.968627;
-    
-    TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
-    
-    x.data[0] = 1; x.data[1] = 2; x.data[2] = 3;
-    
-    f64MatCovScaleIP( f, x );
-    
-    TEST_ASSERT( f64MatEqual( x, xScaled, 1E-5 ) );
-    
-    TerminateMatrices();
-}
-#endif
-
 
 
 MAT_DECL(i32);
@@ -740,5 +1033,10 @@ MAT_PRINT(i32, i32Print);
 
 
 #undef EPS
+
+
+#ifdef __cplusplus
+}
+#endif
 
 
