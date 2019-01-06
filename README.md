@@ -1,6 +1,7 @@
 # Matrices
+[![CircleCI](https://circleci.com/gh/Tuxonomics/matrices-c.svg?style=svg)](https://circleci.com/gh/Tuxonomics/matrices-c)
 
-An abstraction layer of BLAS/LAPACK matrix operations in C99.
+Matrix operations in C99.
 
 
 
