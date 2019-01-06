@@ -6,7 +6,7 @@ release: CFLAGS = -std=c99 -O3 -march=native
 # Detect OS
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
-    MKL_OS = linux/intel64
+    MKL_OS = linux
 endif
 ifeq ($(UNAME_S),Darwin)
     MKL_OS = mac
@@ -14,12 +14,27 @@ endif
 
 MKL_BASE = /opt/intel/compilers_and_libraries/$(MKL_OS)
 
-MKL_PATH1 = $(MKL_BASE)/mkl/lib
-MKL_PATH2 = $(MKL_BASE)/lib
+ifeq ($(UNAME_S),Linux)
+    MKL_PATH1 = $(MKL_BASE)/mkl/lib/intel64
+    MKL_PATH2 = $(MKL_BASE)/lib/intel64
+endif
+ifeq ($(UNAME_S),Darwin)
+    MKL_PATH1 = $(MKL_BASE)/mkl/lib
+    MKL_PATH2 = $(MKL_BASE)/lib
+endif
 
 CFLAGS += -I$(PATH1)/include
-LFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a $(MKL_PATH1)/libmkl_intel_thread.a
-LFLAGS += $(MKL_PATH1)/libmkl_core.a $(MKL_PATH2)/libiomp5.a
+
+LFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a
+LFLAGS += $(MKL_PATH1)/libmkl_intel_thread.a
+LFLAGS += $(MKL_PATH1)/libmkl_core.a
+
+# TODO(jonas): cleanup later
+ifeq ($(UNAME_S),Linux)
+    LFLAGS += $(MKL_PATH1)/*.a $(MKL_PATH1)_lin/*.a
+endif
+
+LFLAGS += $(MKL_PATH2)/libiomp5.a
 LFLAGS += -lpthread -lm -ldl
 
 TARGET = main
