@@ -1,15 +1,26 @@
 CC = clang
 
-debug:   CFLAGS = -g -O0 -DDEBUG
-release: CFLAGS = -O3 -march=native
+debug:   CFLAGS = -std=c99 -g -O0 -DDEBUG
+release: CFLAGS = -std=c99 -O3 -march=native
 
-PATH1 = /opt/intel/compilers_and_libraries_2018.3.185/mac/mkl
-PATH2 = /opt/intel/compilers_and_libraries_2018.3.185/mac/compiler/lib
+# Detect OS
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+    MKL_OS = linux/intel64
+endif
+ifeq ($(UNAME_S),Darwin)
+    MKL_OS = mac
+endif
+
+MKL_BASE = /opt/intel/compilers_and_libraries/$(MKL_OS)
+
+MKL_PATH1 = $(MKL_BASE)/mkl/lib
+MKL_PATH2 = $(MKL_BASE)/lib
 
 CFLAGS += -I$(PATH1)/include
-LFLAGS =  $(PATH1)/lib/libmkl_intel_lp64.a $(PATH1)/lib/libmkl_intel_thread.a
-LFLAGS += $(PATH1)/lib/libmkl_core.a $(PATH2)/libiomp5.a -lpthread -lm #-ld
-DISABLED_WARNINGS = -Wno-writable-strings -Wno-switch
+LFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a $(MKL_PATH1)/libmkl_intel_thread.a
+LFLAGS += $(MKL_PATH1)/libmkl_core.a $(MKL_PATH2)/libiomp5.a
+LFLAGS += -lpthread -lm -ldl
 
 TARGET = main
 TEST_TARGET = $(TARGET)_tests
@@ -22,13 +33,12 @@ debug:   clean $(TARGET)
 release: clean $(TARGET)
 
 $(TARGET):
-	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS) $(DISABLED_WARNINGS)
-
+	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS)
 
 tests:
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
-	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS) $(DISABLED_WARNINGS)
+	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS)
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 

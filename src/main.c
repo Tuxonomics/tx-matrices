@@ -1,43 +1,47 @@
 
-//#include "utilities.h"
-//#include <math.h>
+
+//#include "mkl.h"
+//#define BLAS_DECLS
+//#define LAPACK_DECLS
+
 #include "matrices.h"
 #include <time.h>
 
 
-void InitializeMatrices( u32 numThreads, char threadScope )
-{
-    switch( threadScope ) {
-        case 'g':
-        case 'G': {
-            MKL_Set_Num_Threads( numThreads );
-            break;
-        }
-        case 'l':
-        case 'L': {
-            MKL_Set_Num_Threads_Local( numThreads );
-            break;
-        }
-        default: {
 
-        }
-    }
+//void InitializeMatrices( u32 numThreads, char threadScope )
+//{
+//    switch( threadScope ) {
+//        case 'g':
+//        case 'G': {
+//            MKL_Set_Num_Threads( numThreads );
+//            break;
+//        }
+//        case 'l':
+//        case 'L': {
+//            MKL_Set_Num_Threads_Local( numThreads );
+//            break;
+//        }
+//        default: {
+//
+//        }
+//    }
+//
+//}
 
-}
 
-
-void TerminateMatrices( void )
-{
-    ArenaDestroy( &ScratchArena );
-}
+//void TerminateMatrices( void )
+//{
+//    ArenaDestroy( &ScratchArena );
+//}
 
 
 #ifndef TEST
 int main( int argn, const char **args )
 {
     
-    InitializeMatrices( 4, 'l' );
-    
+//    InitializeMatrices( 1, 'l' );
+
     clock_t t0;
     clock_t t1;
     f64 t;

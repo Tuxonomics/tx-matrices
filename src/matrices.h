@@ -1,10 +1,91 @@
 
 
-
+// TODO(jonas): namespacing
 // TODO(jonas): QR decomposition
+// TODO(jonas): default routines without BLAS
+// TODO(jonas): use general BLAS interface not only MKL
+// TODO(jonas): aligned memory
 
 
-#include "mkl.h"
+#ifndef BLAS_DECLS
+#define BLAS_DECLS
+/* BLAS Declarations */
+
+enum CBLAS_LAYOUT {
+    CblasRowMajor = 101,   /* row-major arrays */
+    CblasColMajor = 102,   /* column-major arrays */
+};
+
+enum CBLAS_TRANSPOSE {
+    CblasNoTrans   = 111,  /* trans='N' */
+    CblasTrans     = 112,  /* trans='T' */
+    CblasConjTrans = 113   /* trans='C' */
+};
+
+enum CBLAS_UPLO {
+    CblasUpper = 121, /* uplo ='U' */
+    CblasLower = 122  /* uplo ='L' */
+};
+
+enum CBLAS_DIAG {
+    CblasNonUnit = 131, /* diag ='N' */
+    CblasUnit    = 132  /* diag ='U' */
+};
+
+enum CBLAS_SIDE {
+    CblasLeft  = 141, /* side ='L' */
+    CblasRight = 142  /* side ='R' */
+};
+
+
+void cblas_scopy(
+    const int n, const float *x, const int incx, float *y, const int incy
+);
+void cblas_dcopy(
+    const int n, const double *x, const int incx, double *y, const int incy
+);
+
+void cblas_sscal( const int n, const float a, float *x, const int incx );
+void cblas_dscal( const int n, const double a, double *x, const int incx );
+
+float cblas_snrm2( const int n, const float *x, const int incx );
+double cblas_dnrm2 (const int n, const double *x, const int incx);
+
+void cblas_sgemm(
+    const int Layout, const int transa, const int transb, const int m,
+    const int n, const int k, const float alpha, const float *a, const int lda,
+    const float *b, const int ldb, const float beta, float *c, const int ldc
+);
+void cblas_dgemm(
+    const int Layout, const int transa, const int transb, const int m,
+    const int n, const int k, const double alpha, const double *a,
+    const int lda, const double *b, const int ldb, const double beta,
+    double *c, const int ldc
+);
+
+#endif
+
+
+#ifndef LAPACK_DECLS
+#define LAPACK_DECLS
+
+/* LAPACK Declarations */
+int LAPACKE_sgetrf(
+    int matrix_layout, int m, int n, float *a, int lda , int *ipiv
+);
+int LAPACKE_dgetrf(
+    int matrix_layout, int m, int n, double *a, int lda , int *ipiv
+);
+
+int LAPACKE_sgetri(
+    int matrix_layout, int n, float *a, int lda, const int *ipiv
+);
+int LAPACKE_dgetri(
+    int matrix_layout, int n, double *a, int lda, const int *ipiv
+);
+
+
+#endif
 
 
 #ifdef __cplusplus
@@ -19,6 +100,12 @@ extern "C" {
 #include <stdarg.h>
 #include <time.h>
 #include <math.h>
+
+
+// tuxonomics prefix
+#ifndef TX_PF
+    #define TX_PF(x) tx_##x
+#endif
 
 
 #ifndef TUXONOMICS_BASIC_TYPES
@@ -78,8 +165,8 @@ extern "C" {
         #define UNIMPLEMENTED()
     #endif
     #endif
-        
-        
+
+
     #if !defined(Inline)
         #if defined(_MSC_VER)
             #if _MSC_VER < 1300
@@ -91,8 +178,8 @@ extern "C" {
             #define Inline __attribute__ ((__always_inline__))
         #endif
     #endif
-        
-        
+
+
     #if !defined(_Threadlocal)
         #if defined(_MSC_VER)
             #define _Threadlocal __declspec( thread )
@@ -100,8 +187,8 @@ extern "C" {
             #define _Threadlocal __thread
         #endif
     #endif
-        
-        
+
+
     void Backtrace() {
     #define BACKTRACE_MAX_STACK_DEPTH 50
     #if SYSTEM_POSIX
@@ -116,7 +203,7 @@ extern "C" {
         UNIMPLEMENTED();
     #endif
     }
-        
+
     void assertHandler(char const *file, i32 line, char const *msg, ...) {
         va_list args;
         va_start(args, msg);
@@ -446,13 +533,6 @@ void ScratchBufferDestroy( void )
 #endif
 
 
-#define DEFAULT_MAJOR CblasRowMajor
-#define NO_TRANS CblasNoTrans
-#define TRANS CblasTrans
-#define UPPER CblasUpper
-#define LOWER CblasLower
-
-
 #define MAT_DECL(type) typedef struct type##Mat type##Mat; \
     struct type##Mat { \
         u32 dim0; \
@@ -669,6 +749,36 @@ void ScratchBufferDestroy( void )
         } \
     }
 
+#define MAT_MUL_NAIVE(type, addFun, mulFun) void \
+    type##MatMul( type##Mat a, type##Mat b, type##Mat c )  /* c = a * b */ \
+    { \
+        ASSERT(a.dim0 == c.dim0 && a.dim1 == b.dim0 && b.dim1 == c.dim1); \
+        /* A is n x m, B is m x p, C is n x p */ \
+        \
+        u32 n = a.dim0; \
+        u32 m = a.dim1; \
+        u32 p = b.dim1; \
+        \
+        i32 i, j, k; \
+        type tmpA; \
+        \
+        type *ra  = a.data; \
+        type *rb  = b.data; \
+        type *rc  = c.data; \
+        \
+        for ( i = 0; i < n; ++i ) { \
+            for ( k = 0; k < m; ++k ) { \
+                for ( j = 0; j < p; ++j ) { \
+                    rc[j] = addFun( rc[j], mulFun( ra[k], rb[j] ) ); \
+                } \
+                rb += p; \
+            } \
+            ra += k; \
+            rc += p; \
+            rb -= m*p; \
+        } \
+    }
+
 /* matrix multiplicaton */
 #define MAT_MUL(type, blas_prefix) Inline void \
     type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
@@ -677,7 +787,7 @@ void ScratchBufferDestroy( void )
          \
         /* lda, ldb, ldc - leading dimensions of matrices: number of columns in matrices */ \
         cblas_##blas_prefix##gemm ( \
-            DEFAULT_MAJOR, NO_TRANS, NO_TRANS, \
+            CblasRowMajor, CblasNoTrans, CblasNoTrans, \
             a.dim0, b.dim1, a.dim1, \
             1.0, \
             a.data, a.dim1, \
@@ -728,7 +838,7 @@ void ScratchBufferDestroy( void )
         i32 ipiv[n+1]; \
         \
         i32 ret = LAPACKE_##lapack_prefix##getrf( \
-            DEFAULT_MAJOR, n, n, tmp.data, n, ipiv \
+            CblasRowMajor, n, n, tmp.data, n, ipiv \
         ); \
         \
         if (ret !=0) { \
@@ -736,7 +846,7 @@ void ScratchBufferDestroy( void )
         } \
         \
         ret = LAPACKE_dgetri( \
-            DEFAULT_MAJOR, n, tmp.data, n, ipiv \
+            CblasRowMajor, n, tmp.data, n, ipiv \
         ); \
         type##MatCopy( tmp, dst ); \
         FreeAll( ScratchBuffer ); \
@@ -760,7 +870,7 @@ void ScratchBufferDestroy( void )
         i32 ipiv[n+1]; \
         \
         i32 ret1 = LAPACKE_##lapack_prefix##getrf( \
-            DEFAULT_MAJOR, n, n, tmp.data, n, ipiv \
+            CblasRowMajor, n, n, tmp.data, n, ipiv \
         ); \
         \
         if (ret1 !=0) { \
