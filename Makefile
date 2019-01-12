@@ -1,7 +1,12 @@
 CC = clang
 
+# set OPT_FLAGS to -DUSE_BLAS to use BLAS backend
+OPT_FLAGS?=
+
 debug:   CFLAGS = -std=c99 -g -O0 -DDEBUG
 release: CFLAGS = -std=c99 -O3 -march=native
+
+LFLAGS = -lm
 
 # Detect OS
 UNAME_S := $(shell uname -s)
@@ -23,7 +28,7 @@ ifeq ($(UNAME_S),Darwin)
     MKL_PATH2 = $(MKL_BASE)/lib
 endif
 
-CFLAGS += -I$(PATH1)/include
+CFLAGS += -I$(MKL_PATH1)/include
 
 LFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a
 LFLAGS += $(MKL_PATH1)/libmkl_intel_thread.a
@@ -35,7 +40,8 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 LFLAGS += $(MKL_PATH2)/libiomp5.a
-LFLAGS += -lpthread -lm -ldl
+LFLAGS += -lpthread -ldl
+
 
 TARGET = main
 TEST_TARGET = $(TARGET)_tests
@@ -48,14 +54,23 @@ debug:   clean $(TARGET)
 release: clean $(TARGET)
 
 $(TARGET):
-	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS)
+	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS) $(OPT_FLAGS)
 
-tests:
+tests/naive:
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
 	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS)
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
+
+tests/blas:
+	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
+	@./scripts/gen_test_main.sh > $(TEST_MAIN)
+	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST -DUSE_BLAS $(LFLAGS)
+	@./$(TEST_TARGET) 2> $(TEST_LOG)
+	@rm -f $(TEST_TARGET) $(TEST_MAIN)
+
+tests: tests/naive tests/blas
 
 clean:
 	rm -f $(TARGET)

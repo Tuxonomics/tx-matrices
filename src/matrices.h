@@ -479,12 +479,9 @@ void test_arena()
         COPY(t)
 
 
-    BASIC_FUNCS(f32);
     BASIC_FUNCS(f64);
 
-
-    void i32Print( i32 a ) { printf("%d\n",   a); }
-
+    void i32Print( i32 a ) { printf("%d\n", a); }
 
     #undef ADD
     #undef SUB
@@ -502,9 +499,6 @@ void test_arena()
 #if TEST
 void test_basic_funcs()
 {
-    TEST_ASSERT( f32Equal( 1.0f, 0.51f, 0.5 ) );
-    TEST_ASSERT( ! f32Equal( 0.0f, 0.01f, 1E-2 ) );
-
     TEST_ASSERT( f64Equal( 1, 0.51, 0.5 ) );
     TEST_ASSERT( ! f64Equal( 0.0, 0.01, 1E-2 ) );
 
@@ -513,7 +507,6 @@ void test_basic_funcs()
 
     f64Copy( a, &b );
     TEST_ASSERT( f64Equal(a, b, 1E-10) );
-
 }
 #endif
 
@@ -749,8 +742,8 @@ void ScratchBufferDestroy( void )
         } \
     }
 
-#define MAT_MUL_NAIVE(type, addFun, mulFun) void \
-    type##MatMul( type##Mat a, type##Mat b, type##Mat c )  /* c = a * b */ \
+#define MAT_MUL_NAIVE(type, addFun, mulFun) Inline void \
+    type##MatMulN( type##Mat a, type##Mat b, type##Mat c )  /* c = a * b */ \
     { \
         ASSERT(a.dim0 == c.dim0 && a.dim1 == b.dim0 && b.dim1 == c.dim1); \
         /* A is n x m, B is m x p, C is n x p */ \
@@ -766,6 +759,8 @@ void ScratchBufferDestroy( void )
         type *rb  = b.data; \
         type *rc  = c.data; \
         \
+        memset(c.data, 0, n * p * sizeof(type)); \
+        \
         for ( i = 0; i < n; ++i ) { \
             for ( k = 0; k < m; ++k ) { \
                 for ( j = 0; j < p; ++j ) { \
@@ -773,15 +768,14 @@ void ScratchBufferDestroy( void )
                 } \
                 rb += p; \
             } \
-            ra += k; \
+            ra += m; \
             rc += p; \
             rb -= m*p; \
         } \
     }
 
-/* matrix multiplicaton */
-#define MAT_MUL(type, blas_prefix) Inline void \
-    type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
+#define MAT_MUL_BLAS(type, blas_prefix) Inline void \
+    type##MatMulB( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
     { \
         ASSERT(a.dim0 == c.dim0 && a.dim1 == b.dim0 && b.dim1 == c.dim1); \
          \
@@ -796,6 +790,25 @@ void ScratchBufferDestroy( void )
             c.data, b.dim1 \
         ); \
     }
+
+/* matrix multiplicaton */
+#ifdef USE_BLAS
+    #define MAT_MUL(type, blas_prefix, addFun, mulFun) \
+        MAT_MUL_BLAS(type, blas_prefix) \
+        void \
+        type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
+        { \
+            type##MatMulB( a, b, c ); \
+        }
+#else
+    #define MAT_MUL(type, blas_prefix, addFun, mulFun) \
+        MAT_MUL_NAIVE(type, addFun, mulFun) \
+        void \
+        type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
+        { \
+            type##MatMulN( a, b, c ); \
+        }
+#endif
 
 /* matrix trace */
 #define MAT_TRACE(type) type \
@@ -915,13 +928,16 @@ MAT_SCALE(f64, d);             // tested
 MAT_VNORM(f64, d);             // tested
 MAT_ADD(f64, f64Add);          // tested
 MAT_SUB(f64, f64Sub);          // tested
-MAT_MUL(f64, d);               // tested
 MAT_ELOP(f64, Mul, f64Mul);    // tested
 MAT_ELOP(f64, Div, f64Div);    // tested
 MAT_TRACE(f64);                // tested
 MAT_T(f64);                    // tested
 MAT_INV(f64, d);               // tested
 MAT_DET(f64, d);               // tested
+
+
+// BLAS-dependent functions
+MAT_MUL(f64, d, f64Add, f64Mul);       // tested
 
 
 #if TEST
@@ -962,12 +978,14 @@ void test_vnorm()
 #if TEST
 void test_add_sub_mul()
 {
-    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
+    u32 matSize = 3;
+
+    f64Mat a = f64MatMake( DefaultAllocator, matSize, matSize );
+    f64Mat b = f64MatMake( DefaultAllocator, matSize, matSize );
+    f64Mat c = f64MatMake( DefaultAllocator, matSize, matSize );
+    f64Mat e = f64MatMake( DefaultAllocator, matSize, matSize );
     
-    for ( u32 i=0; i<9; ++i ) {
+    for ( u32 i=0; i<matSize*matSize; ++i ) {
         a.data[i] = (f64) i;
         b.data[i] = (f64) 2*i;
     }
@@ -980,7 +998,7 @@ void test_add_sub_mul()
     e.data[6] = 18; e.data[7] = 21; e.data[8] = 24;
 
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-    
+
     // sub
     f64MatSub( a, b, c );
 
@@ -989,7 +1007,7 @@ void test_add_sub_mul()
     e.data[6] = -6; e.data[7] = -7; e.data[8] = -8;
 
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-    
+
     // mul
     f64MatMul( a, b, c );
 
@@ -998,7 +1016,7 @@ void test_add_sub_mul()
     e.data[6] = 138; e.data[7] = 180; e.data[8] = 222;
 
     TEST_ASSERT( f64MatEqual( c, e, EPS ) );
-    
+
     f64MatFree( DefaultAllocator, &a );
     f64MatFree( DefaultAllocator, &b );
     f64MatFree( DefaultAllocator, &c );
@@ -1133,13 +1151,6 @@ void test_determinant()
     ScratchBufferDestroy();
 }
 #endif
-
-
-MAT_DECL(i32);
-MAT_MAKE(i32);
-MAT_FREE(i32);
-MAT_PRINT(i32, i32Print);
-
 
 
 #undef EPS
