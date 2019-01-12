@@ -30,7 +30,7 @@ endif
 
 CFLAGS += -I$(MKL_PATH1)/include
 
-LFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a
+LFLAGS +=  $(MKL_PATH1)/libmkl_intel_lp64.a
 LFLAGS += $(MKL_PATH1)/libmkl_intel_thread.a
 LFLAGS += $(MKL_PATH1)/libmkl_core.a
 
