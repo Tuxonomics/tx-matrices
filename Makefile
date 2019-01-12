@@ -57,6 +57,7 @@ $(TARGET):
 	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS) $(OPT_FLAGS)
 
 tests/naive:
+	@echo "Tests without BLAS / LAPACK:"
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
 	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS)
@@ -64,6 +65,7 @@ tests/naive:
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 
 tests/blas:
+	@echo "Tests with BLAS / LAPACK:"
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
 	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST -DUSE_BLAS $(LFLAGS)

@@ -642,11 +642,11 @@ void ScratchBufferDestroy( void )
         return m.data[dim0 * m.dim1 + dim1]; \
     }
 
-#define MAT_COPY(type, blas_prefix) Inline void \
+#define MAT_COPY(type) Inline void \
     type##MatCopy( type##Mat src, type##Mat dst ) \
     { \
         ASSERT( (src.dim0 * src.dim1) == (dst.dim0 * dst.dim1) ); \
-        cblas_##blas_prefix##copy( src.dim0 * src.dim1, src.data, 1, dst.data, 1); \
+        memcpy( dst.data, src.data, src.dim0 * src.dim1 * sizeof(type) ); \
     }
 
 #define MAT_SETCOL(type) Inline void \
@@ -700,14 +700,43 @@ void ScratchBufferDestroy( void )
         return cblas_##blas_prefix##nrm2( MAX(m.dim0, m.dim1), m.data, 1 ); \
     }
 
-/* matrix scaling */
-#define MAT_SCALE(type, blas_prefix) Inline void \
-    type##MatScale( type##Mat m, type val, type##Mat dst ) \
+#define MAT_SCALEN(type) Inline void \
+    type##MatScaleN( type##Mat m, type val, type##Mat dst ) \
+    { \
+        ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
+        type##MatCopy( m, dst ); \
+        u64 limit = (u64) m.dim0 * m.dim1; \
+        for ( u64 i = 0; i<limit; ++i ) { \
+            dst.data[i] = val * m.data[i]; \
+        } \
+    }
+
+#define MAT_SCALEB(type, blas_prefix) Inline void \
+    type##MatScaleB( type##Mat m, type val, type##Mat dst ) \
     { \
         ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         type##MatCopy( m, dst ); \
         cblas_##blas_prefix##scal( (dst.dim0 * dst.dim1), val, dst.data, 1); \
     }
+
+/* matrix scaling */
+#ifdef USE_BLAS
+    #define MAT_SCALE(type, blas_prefix) \
+        MAT_SCALEB(type, blas_prefix); \
+        Inline void \
+        type##MatScale( type##Mat m, type val, type##Mat dst ) \
+        { \
+            type##MatScaleB( m, val, dst );\
+        }
+#else
+    #define MAT_SCALE(type, blas_prefix) \
+        MAT_SCALEN(type); \
+        Inline void \
+        type##MatScale( type##Mat m, type val, type##Mat dst ) \
+        { \
+            type##MatScaleN( m, val, dst );\
+        }
+#endif
 
 /* matrix addition */
 #define MAT_ADD(type, fun) Inline void \
@@ -753,7 +782,6 @@ void ScratchBufferDestroy( void )
         u32 p = b.dim1; \
         \
         i32 i, j, k; \
-        type tmpA; \
         \
         type *ra  = a.data; \
         type *rb  = b.data; \
@@ -917,14 +945,13 @@ MAT_ZERO(f64);
 MAT_SET(f64);
 MAT_SETELEMENT(f64);
 MAT_GETELEMENT(f64);
-MAT_COPY(f64, d);
+MAT_COPY(f64);
 MAT_SETCOL(f64);
 MAT_GETCOL(f64);
 MAT_SETROW(f64);
 MAT_GETROW(f64);
 
 
-MAT_SCALE(f64, d);             // tested
 MAT_VNORM(f64, d);             // tested
 MAT_ADD(f64, f64Add);          // tested
 MAT_SUB(f64, f64Sub);          // tested
@@ -938,6 +965,10 @@ MAT_DET(f64, d);               // tested
 
 // BLAS-dependent functions
 MAT_MUL(f64, d, f64Add, f64Mul);       // tested
+MAT_SCALE(f64, d);                     // tested
+// MAT_DET
+// MAT_INV
+// MAT_VNORM
 
 
 #if TEST
