@@ -4,7 +4,7 @@
 //#define LAPACK_DECLS
 
 
-//#define USE_BLAS
+//#define USE_BLAS 1
 
 #include "matrices.h"
 #include <time.h>
@@ -21,6 +21,10 @@ int main( int argn, const char **args )
     MKL_Set_Num_Threads_Local( numThreads );
 #endif
 
+#if USE_BLAS
+    printf("Using BLAS...\n\n");
+#endif
+
     clock_t t0, t1;
     f64 t;
 
@@ -30,14 +34,24 @@ int main( int argn, const char **args )
     f64Mat b = f64MatMake( DefaultAllocator, N, N );
     f64Mat c = f64MatMake( DefaultAllocator, N, N );
 
+//    for ( u32 i=0; i<(N*N); ++i ) {
+//        a.data[i] = (f64) i;
+//        b.data[i] = (f64) 2*i;
+//    }
+
+
     for ( u32 i=0; i<(N*N); ++i ) {
         a.data[i] = (f64) i;
         b.data[i] = (f64) 2*i;
     }
 
+
+
     t0 = clock();
 
-    f64MatMul( a, b, c );
+//    f64MatMul( a, b, c );
+
+    f64MatScale( a, 2, c );
 
     t1 = clock();
     t = (f64) (t1 - t0) / CLOCKS_PER_SEC;

@@ -5,7 +5,10 @@
 // TODO(jonas): default routines without BLAS
 // TODO(jonas): use general BLAS interface not only MKL
 // TODO(jonas): aligned memory
+// TODO(jonas): test large matrices
 
+
+// #if USE_BLAS
 
 #ifndef BLAS_DECLS
 #define BLAS_DECLS
@@ -63,7 +66,7 @@ void cblas_dgemm(
     double *c, const int ldc
 );
 
-#endif
+#endif      // BLAS_DECLS
 
 
 #ifndef LAPACK_DECLS
@@ -85,7 +88,9 @@ int LAPACKE_dgetri(
 );
 
 
-#endif
+#endif    // LAPACK_DECLS
+
+// #endif  // USE_BLAS
 
 
 #ifdef __cplusplus
@@ -128,6 +133,8 @@ extern "C" {
     typedef i32 b32;
 #endif
 
+    typedef float  s;
+    typedef double d;
 
 #ifndef TUXONOMICS_UTILITIES
 
@@ -692,26 +699,58 @@ void ScratchBufferDestroy( void )
     }
 
 /* vector euclidean norm */
-#define MAT_VNORM(type, blas_prefix) Inline type \
-    type##MatVNorm(type##Mat m) \
+#define MAT_VNORM_BLAS(type, blas_prefix) Inline type \
+    type##MatVNormB(type##Mat m) \
     { \
         ASSERT( m.dim0 == 1 || m.dim1 == 1 ); \
          \
         return cblas_##blas_prefix##nrm2( MAX(m.dim0, m.dim1), m.data, 1 ); \
     }
 
-#define MAT_SCALEN(type) Inline void \
+#define MAT_VNORM_NAIVE(type, blas_prefix) Inline type \
+    type##MatVNormN(type##Mat m) \
+    { \
+        ASSERT( m.dim0 == 1 || m.dim1 == 1 ); \
+        \
+        u32 matSize = m.dim0 * m.dim1; \
+        type out = 0; \
+        \
+        for ( u32 i=0; i<matSize; ++i ) { \
+            out = out + m.data[i] * m.data[i]; \
+        } \
+        return sqrt( out ); \
+    }
+
+#ifdef USE_BLAS
+    #define MAT_VNORM(type, blas_prefix) \
+        MAT_VNORM_BLAS(type, blas_prefix); \
+        Inline type \
+        type##MatVNorm(type##Mat m) \
+        { \
+            return type##MatVNormB( m ); \
+        }
+#else
+    #define MAT_VNORM(type, blas_prefix) \
+        MAT_VNORM_NAIVE(type, blas_prefix); \
+        Inline type \
+        type##MatVNorm(type##Mat m) \
+        { \
+            return type##MatVNormN( m ); \
+        }
+#endif
+
+/* matrix scaling */
+#define MAT_SCALE_NAIVE(type) Inline void \
     type##MatScaleN( type##Mat m, type val, type##Mat dst ) \
     { \
         ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
-        type##MatCopy( m, dst ); \
         u64 limit = (u64) m.dim0 * m.dim1; \
         for ( u64 i = 0; i<limit; ++i ) { \
             dst.data[i] = val * m.data[i]; \
         } \
     }
 
-#define MAT_SCALEB(type, blas_prefix) Inline void \
+#define MAT_SCALE_BLAS(type, blas_prefix) Inline void \
     type##MatScaleB( type##Mat m, type val, type##Mat dst ) \
     { \
         ASSERT( m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
@@ -719,10 +758,9 @@ void ScratchBufferDestroy( void )
         cblas_##blas_prefix##scal( (dst.dim0 * dst.dim1), val, dst.data, 1); \
     }
 
-/* matrix scaling */
 #ifdef USE_BLAS
     #define MAT_SCALE(type, blas_prefix) \
-        MAT_SCALEB(type, blas_prefix); \
+        MAT_SCALE_BLAS(type, blas_prefix); \
         Inline void \
         type##MatScale( type##Mat m, type val, type##Mat dst ) \
         { \
@@ -730,7 +768,7 @@ void ScratchBufferDestroy( void )
         }
 #else
     #define MAT_SCALE(type, blas_prefix) \
-        MAT_SCALEN(type); \
+        MAT_SCALE_NAIVE(type); \
         Inline void \
         type##MatScale( type##Mat m, type val, type##Mat dst ) \
         { \
@@ -822,7 +860,7 @@ void ScratchBufferDestroy( void )
 /* matrix multiplicaton */
 #ifdef USE_BLAS
     #define MAT_MUL(type, blas_prefix, addFun, mulFun) \
-        MAT_MUL_BLAS(type, blas_prefix) \
+        MAT_MUL_BLAS(type, blas_prefix); \
         void \
         type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
         { \
@@ -830,7 +868,7 @@ void ScratchBufferDestroy( void )
         }
 #else
     #define MAT_MUL(type, blas_prefix, addFun, mulFun) \
-        MAT_MUL_NAIVE(type, addFun, mulFun) \
+        MAT_MUL_NAIVE(type, addFun, mulFun); \
         void \
         type##MatMul( type##Mat a, type##Mat b, type##Mat c ) /* c = a * b */ \
         { \

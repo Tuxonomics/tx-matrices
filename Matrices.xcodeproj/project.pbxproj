@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		DDB3978D2134784B00A8E6BB /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = DDB3978B2134784B00A8E6BB /* main.c */; settings = {COMPILER_FLAGS = "-O3"; }; };
+		DDB3978D2134784B00A8E6BB /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = DDB3978B2134784B00A8E6BB /* main.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -279,6 +279,7 @@
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
+				GCC_OPTIMIZATION_LEVEL = 3;
 				HEADER_SEARCH_PATHS = /opt/intel/compilers_and_libraries_2018.3.185/mac/mkl/include;
 				OTHER_LDFLAGS = (
 					"-lpthread",

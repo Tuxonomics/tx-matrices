@@ -3,8 +3,8 @@ CC = clang
 # set OPT_FLAGS to -DUSE_BLAS to use BLAS backend
 OPT_FLAGS?=
 
-debug:   CFLAGS = -std=c99 -g -O0 -DDEBUG
-release: CFLAGS = -std=c99 -O3 -march=native
+debug:   CFLAGS = -std=c89 -g -O0 -DDEBUG
+release: CFLAGS = -std=c89 -O3 -march=native
 
 LFLAGS = -lm
 
@@ -30,17 +30,17 @@ endif
 
 CFLAGS += -I$(MKL_PATH1)/include
 
-LFLAGS +=  $(MKL_PATH1)/libmkl_intel_lp64.a
-LFLAGS += $(MKL_PATH1)/libmkl_intel_thread.a
-LFLAGS += $(MKL_PATH1)/libmkl_core.a
+MKLFLAGS =  $(MKL_PATH1)/libmkl_intel_lp64.a
+MKLFLAGS += $(MKL_PATH1)/libmkl_intel_thread.a
+MKLFLAGS += $(MKL_PATH1)/libmkl_core.a
 
 # TODO(jonas): cleanup later
 ifeq ($(UNAME_S),Linux)
-    LFLAGS += $(MKL_PATH1)/*.a $(MKL_PATH1)_lin/*.a
+    MKLFLAGS += $(MKL_PATH1)/*.a $(MKL_PATH1)_lin/*.a
 endif
 
-LFLAGS += $(MKL_PATH2)/libiomp5.a
-LFLAGS += -lpthread -ldl
+MKLFLAGS += $(MKL_PATH2)/libiomp5.a
+MKLFLAGS += -lpthread -ldl
 
 
 TARGET = main
@@ -54,13 +54,22 @@ debug:   clean $(TARGET)
 release: clean $(TARGET)
 
 $(TARGET):
-	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS) $(OPT_FLAGS)
+	$(CC) src/main.c -o $(TARGET) $(CFLAGS) $(LFLAGS) $(MKLFLAGS) $(OPT_FLAGS)
+
+
+disassembly:
+	$(CC) src/main.c -S -o $(TARGET)_asm.txt $(CFLAGS) $(LFLAGS) $(MKLFLAGS) $(OPT_FLAGS)
+
+
+preprocessor:
+	$(CC) src/main.c -E -o $(TARGET)_pp.c $(OPT_FLAGS)	
+
 
 tests/naive:
 	@echo "Tests without BLAS / LAPACK:"
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
-	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS)
+	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS) $(MKLFLAGS)
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 
@@ -68,7 +77,7 @@ tests/blas:
 	@echo "Tests with BLAS / LAPACK:"
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
-	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST -DUSE_BLAS $(LFLAGS)
+	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST -DUSE_BLAS $(LFLAGS) $(MKLFLAGS)
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 
