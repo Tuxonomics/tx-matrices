@@ -624,6 +624,16 @@ void ScratchBufferDestroy( void )
         return m; \
     }
 
+#define MAT_IDENT(type) type##Mat \
+    type##MatIdentMake(Allocator al, u32 dim) \
+    { \
+        type##Mat m = type##MatZeroMake(al, dim, dim); \
+        for ( u32 i=0; i<dim; ++i ) { \
+            m.data[i*dim + i] = 1.0; \
+        } \
+        return m; \
+    }
+
 #define MAT_SET(type) void \
     type##MatSet( type##Mat m, type val ) \
     { \
@@ -980,6 +990,7 @@ MAT_PRINTLONG(f64, f64Print);
 MAT_PRINT(f64, f64Print);
 MAT_EQUAL(f64, f64Equal);
 MAT_ZERO(f64);
+MAT_IDENT(f64);
 MAT_SET(f64);
 MAT_SETELEMENT(f64);
 MAT_GETELEMENT(f64);
@@ -1152,23 +1163,30 @@ void test_trace()
 #if TEST
 void test_inverse()
 {
-    f64Mat c = f64MatZeroMake( DefaultAllocator, 3, 3 );
-    f64Mat e = f64MatZeroMake( DefaultAllocator, 3, 3 );
+    f64Mat c = f64MatIdentMake( DefaultAllocator, 3 );
+    f64Mat e = f64MatMake( DefaultAllocator, 3, 3 );
     f64Mat f = f64MatMake( DefaultAllocator, 3, 3 );
-    
-    for ( u32 i=0; i<c.dim0; ++i )
-        c.data[ i * c.dim0 + i ] = (f64) i + 0.5;
-    
-    f64MatInv( c, f );
-    
-    for ( u32 i=0; i<e.dim0; ++i )
-        e.data[ i * e.dim0 + i ] = 1 / ((f64) i + 0.5);
-    
-    TEST_ASSERT( f64MatEqual( f, e, EPS ) );
+    f64Mat g = f64MatMake( DefaultAllocator, 3, 3 );
+
+    f.data[0] = 0.3306201;
+    f.data[1] = 0.6187407;
+    f.data[2] = 0.6796355;
+    f.data[3] = 0.4953877;
+    f.data[4] = 0.9147741;
+    f.data[5] = 0.3992435;
+    f.data[6] = 0.5875585;
+    f.data[7] = 0.4554847;
+    f.data[8] = 0.8567403;
+
+    f64MatInv(f, e);
+    f64MatMul(f, e, g);
+
+    TEST_ASSERT( f64MatEqual( c, g, EPS ) );
     
     f64MatFree( DefaultAllocator, &c );
     f64MatFree( DefaultAllocator, &e );
     f64MatFree( DefaultAllocator, &f );
+    f64MatFree( DefaultAllocator, &g );
     
     ScratchBufferDestroy();
 }
