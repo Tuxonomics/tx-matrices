@@ -1,5 +1,5 @@
 # TX-Matrices (WIP)
-[![CircleCI](https://circleci.com/gh/Tuxonomics/matrices-c.svg?style=svg)](https://circleci.com/gh/Tuxonomics/matrices-c)
+[![CircleCI](https://circleci.com/gh/Tuxonomics/tx-matrices.svg?style=svg)](https://circleci.com/gh/Tuxonomics/tx-matrices)
 
 This repository provides a matrix abstraction for C89 and up. So far the
 matrices are not dynamically sized or buffered. For some routines it is
