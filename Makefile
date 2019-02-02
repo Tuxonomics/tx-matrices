@@ -6,7 +6,7 @@ OPT_FLAGS?=
 debug:   CFLAGS = -std=c89 -g -O0 -DDEBUG
 release: CFLAGS = -std=c89 -O3 -march=native
 
-LFLAGS = -lm -lpthread -ldl
+LFLAGS = -lm
 
 # Detect OS
 UNAME_S := $(shell uname -s)
@@ -40,7 +40,7 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 MKLFLAGS += $(MKL_PATH2)/libiomp5.a
-# MKLFLAGS += -lpthread -ldl
+MKLFLAGS += -lpthread -ldl
 
 
 TARGET = main
@@ -81,7 +81,7 @@ tests/blas:
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 
-tests: tests/naive tests/blas
+tests: tests/blas tests/naive
 
 clean:
 	rm -f $(TARGET)
