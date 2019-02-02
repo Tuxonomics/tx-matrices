@@ -6,7 +6,7 @@ OPT_FLAGS?=
 debug:   CFLAGS = -std=c89 -g -O0 -DDEBUG
 release: CFLAGS = -std=c89 -O3 -march=native
 
-LFLAGS = -lm
+LFLAGS = -lm -lpthread -ldl
 
 # Detect OS
 UNAME_S := $(shell uname -s)
@@ -40,7 +40,7 @@ ifeq ($(UNAME_S),Linux)
 endif
 
 MKLFLAGS += $(MKL_PATH2)/libiomp5.a
-MKLFLAGS += -lpthread -ldl
+# MKLFLAGS += -lpthread -ldl
 
 
 TARGET = main
