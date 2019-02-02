@@ -69,7 +69,7 @@ tests/naive:
 	@echo "Tests without BLAS / LAPACK:"
 	@rm -f $(TEST_TARGET) $(TEST_LOG) $(TEST_MAIN)
 	@./scripts/gen_test_main.sh > $(TEST_MAIN)
-	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS) $(MKLFLAGS)
+	@$(CC) $(TEST_MAIN) -o $(TEST_TARGET) $(CFLAGS) -DTEST $(LFLAGS)
 	@./$(TEST_TARGET) 2> $(TEST_LOG)
 	@rm -f $(TEST_TARGET) $(TEST_MAIN)
 

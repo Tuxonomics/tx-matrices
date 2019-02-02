@@ -1,11 +1,12 @@
 
 
 // TODO(jonas): namespacing
-// TODO(jonas): QR decomposition
+// TODO(jonas): QR decomposition, dedicated routines for symmetric matrices
 // TODO(jonas): default routines without BLAS
-// TODO(jonas): use general BLAS interface not only MKL
 // TODO(jonas): aligned memory
 // TODO(jonas): test large matrices
+// TODO(jonas): eigenvalues, SVD
+// TODO(jonas): check all elementary function definitions for recursion
 
 
 // #if USE_BLAS
@@ -899,7 +900,6 @@ void ScratchBufferDestroy( void )
     }
 
 /* matrix transpose */
-// TODO(jonas): use cache-aware transposition
 #define MAT_T(type) void \
     type##MatT(type##Mat m, type##Mat dst) \
     { \
@@ -912,26 +912,134 @@ void ScratchBufferDestroy( void )
         } \
     }
 
+
+// Adapted from Wikipedia
+// https://en.wikipedia.org/wiki/LU_decomposition#Doolittle_algorithm
+// a - in-situ LU decomposition on a (n x n)
+// ipiv - pivot marker of length n
+// tmp - temporary memory not being allocated inside, length n
+
+#define MAT_LU(type) b32 \
+    type##LU(type *a, i32 *ipiv, type *tmp, u32 n, type tol) \
+    { \
+        \
+        u32 i, j, k, imax; \
+        type maxA, *ptr, absA; \
+        \
+        for (i = 0; i <= n; i++) \
+            ipiv[i] = i;  /* Unit permutation matrix, ipiv[n] initialized with n */ \
+        \
+        for (i = 0; i < n; i++) { \
+            maxA = 0.0; \
+            imax = i; \
+            \
+            for (k = i; k < n; k++) \
+                if ((absA = fabs(a[k*n+i])) > maxA) { \
+                    maxA = absA; \
+                    imax = k; \
+                } \
+            \
+            if (maxA < tol) { \
+                return 0;  /* failure, matrix is degenerate */ \
+            } \
+            \
+            if (imax != i) { \
+                /* pivoting ipiv */ \
+                j = ipiv[i]; \
+                ipiv[i] = ipiv[imax]; \
+                ipiv[imax] = j; \
+                \
+                /* TODO: this is very expensive! */ \
+                memcpy( tmp, a + i*n, n * sizeof(*a) ); \
+                memcpy( a + i*n, a + imax*n, n * sizeof(*a) ); \
+                memcpy( a + imax*n, tmp, n * sizeof(*a) ); \
+                \
+                /* counting pivots starting from n (for determinant) */ \
+                ipiv[n]++; \
+            } \
+            \
+            for (j = i + 1; j < n; j++) { \
+                a[j*n+i] /= a[i*n+i]; \
+                \
+                for (k = i + 1; k < n; k++) \
+                    a[j*n+k] -= a[j*n+i] * a[j*n+k]; \
+            } \
+        } \
+        return 1;  /* decomposition done */ \
+    }
+
+
+#define MAT_INV_NAIVE(type) b32 \
+    type##MatInvN(type##Mat m, type##Mat dst) \
+    { \
+        ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
+        u32 n = m.dim0; \
+        \
+        u32 scratchSize = (n * n + n)* sizeof(type); \
+        scratchSize    += n * sizeof(i32); \
+        ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
+        \
+        type##Mat tmp = type##MatMake( ScratchBuffer, n, n ); \
+        type##MatCopy( m, tmp ); \
+        \
+        i32 *ipiv = Alloc( ScratchBuffer, n * sizeof(i32) ); \
+        type *tmpV = Alloc( ScratchBuffer, n * sizeof(type) ); \
+        \
+        b32 ret = type##LU(tmp.data, ipiv, tmpV, n, 1.0E-40); \
+        \
+        if ( ! ret ) { \
+            FreeAll( ScratchBuffer ); \
+            return 0; \
+        } \
+        \
+        type *im = dst.data; \
+        type *a = tmp.data; \
+        \
+        for ( u32 j = 0; j < n; ++j ) { \
+            for ( u32 i = 0; i < n; ++i ) { \
+                if ( ipiv[i] == j )  \
+                    im[i*n+j] = 1.0; \
+                else \
+                    im[i*n+j] = 0.0; \
+                \
+                for ( u32 k = 0; k < i; ++k ) \
+                    im[i*n+j] -= a[i*n+k] * im[k*n+j]; \
+            } \
+            \
+            for ( u32 l = n - 1; l >= 0; --l ) { \
+                for ( u32 k = l + 1; k < n; ++k ) \
+                    im[l*n+j] -= a[l*n+k] * im[k*n+j]; \
+                \
+                im[l*n+j] = im[l*n+j] / a[l*n+l]; \
+            } \
+        } \
+        return 1; \
+    }
+
+
+
+// TODO: allocate ipiv in scratch buffer
 /* matrix inverse */
-#define MAT_INV(type, lapack_prefix) i32 \
-    type##MatInv(type##Mat m, type##Mat dst) \
+#define MAT_INV_BLAS(type, lapack_prefix) b32 \
+    type##MatInvB(type##Mat m, type##Mat dst) \
     {\
         ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         \
-        u32 scratchSize = m.dim0 * m.dim1 * sizeof(type); \
+        u32 scratchSize = m.dim0 * m.dim0 * sizeof(type); \
         ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
         \
         type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim1 ); \
         type##MatCopy( m, tmp ); \
         u32 n = tmp.dim0; \
-        i32 ipiv[n+1]; \
+        i32 ipiv[n]; \
         \
         i32 ret = LAPACKE_##lapack_prefix##getrf( \
             CblasRowMajor, n, n, tmp.data, n, ipiv \
         ); \
         \
-        if (ret !=0) { \
-            return ret; \
+        if (ret !=0 ) { \
+            FreeAll( ScratchBuffer ); \
+            return 0; \
         } \
         \
         ret = LAPACKE_dgetri( \
@@ -940,23 +1048,61 @@ void ScratchBufferDestroy( void )
         type##MatCopy( tmp, dst ); \
         FreeAll( ScratchBuffer ); \
         \
-        return ret; \
+        return 1; \
     }
 
-// TODO(jonas): maybe use QR decomposition for determinant to improve accuracy
-#define MAT_DET(type, lapack_prefix) type \
-    type##MatDet(type##Mat m) \
+
+#define MAT_DET_NAIVE(type, lapack_prefix) type \
+    type##MatDetN(type##Mat m) \
+    { \
+        ASSERT( m.dim0 == m.dim1 ); \
+        u32 n = m.dim0; \
+        \
+        u32 scratchSize = (n * n + n)* sizeof(type); \
+        scratchSize    += n * sizeof(i32); \
+        ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
+        \
+        type##Mat tmp = type##MatMake( ScratchBuffer, n, n ); \
+        type##MatCopy( m, tmp ); \
+        \
+        i32 *ipiv = Alloc( ScratchBuffer, n * sizeof(i32) ); \
+        type *tmpV = Alloc( ScratchBuffer, n * sizeof(type) ); \
+        \
+        b32 ret = type##LU(tmp.data, ipiv, tmpV, n, 1.0E-40); \
+        \
+        if ( ! ret ) { \
+            FreeAll( ScratchBuffer ); \
+            return 0; \
+        } \
+        \
+        type *a = tmp.data; \
+        type det = a[0]; \
+        \
+        for ( u32 i = 1; i < n; ++i ) \
+            det *= a[i*n+i]; \
+        \
+        if ( (ipiv[n] - n) % 2 != 0 ) \
+            det = -det; \
+        \
+        FreeAll( ScratchBuffer ); \
+        return det; \
+    }
+
+
+// TODO: allocate ipiv in scratch buffer
+#define MAT_DET_BLAS(type, lapack_prefix) type \
+    type##MatDetB(type##Mat m) \
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
-        u32 scratchSize = m.dim0 * m.dim1 * sizeof(type); \
+        u32 scratchSize = m.dim0 * m.dim0 * sizeof(type); \
         ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
         \
         type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim0 ); \
         type##MatCopy( m, tmp ); \
         \
         u32 n = tmp.dim0; \
-        i32 ipiv[n+1]; \
+        i32 ipiv[n]; \
         \
         i32 ret1 = LAPACKE_##lapack_prefix##getrf( \
             CblasRowMajor, n, n, tmp.data, n, ipiv \
@@ -983,41 +1129,99 @@ void ScratchBufferDestroy( void )
     }
 
 
-MAT_DECL(f64);
-MAT_MAKE(f64);
-MAT_FREE(f64);
-MAT_PRINTLONG(f64, f64Print);
-MAT_PRINT(f64, f64Print);
-MAT_EQUAL(f64, f64Equal);
-MAT_ZERO(f64);
-MAT_IDENT(f64);
-MAT_SET(f64);
-MAT_SETELEMENT(f64);
-MAT_GETELEMENT(f64);
-MAT_COPY(f64);
-MAT_SETCOL(f64);
-MAT_GETCOL(f64);
-MAT_SETROW(f64);
-MAT_GETROW(f64);
+// TODO(jonas): add specific type operation functions
+#ifdef USE_BLAS
+    #define MAT_INV_DET(type, lapack_prefix) \
+        MAT_INV_BLAS(type, lapack_prefix); \
+        b32 \
+        type##MatInv(type##Mat m, type##Mat dst) \
+        { \
+            return type##MatInvB( m, dst ); \
+        } \
+        \
+        MAT_DET_BLAS(type, lapack_prefix); \
+        \
+        type \
+        type##MatDet(type##Mat m) \
+        { \
+            return type##MatDetB( m ); \
+        }
+#else
+    #define MAT_INV_DET(type, lapack_prefix) \
+        MAT_LU(type); \
+        MAT_INV_NAIVE(type); \
+        b32 \
+        type##MatInv(type##Mat m, type##Mat dst) \
+        { \
+            return type##MatInvN( m, dst ); \
+        } \
+        \
+        MAT_DET_NAIVE(type, lapack_prefix); \
+        \
+        type \
+        type##MatDet(type##Mat m) \
+        { \
+            return type##MatDetN( m ); \
+        }
+#endif
 
 
-MAT_VNORM(f64, d);             // tested
-MAT_ADD(f64, f64Add);          // tested
-MAT_SUB(f64, f64Sub);          // tested
-MAT_ELOP(f64, Mul, f64Mul);    // tested
-MAT_ELOP(f64, Div, f64Div);    // tested
-MAT_TRACE(f64);                // tested
-MAT_T(f64);                    // tested
-MAT_INV(f64, d);               // tested
-MAT_DET(f64, d);               // tested
+// /* INPUT: A,P filled in LUPDecompose; b - rhs vector; n - dimension
+//  * OUTPUT: x - solution vector of A*x=b
+//  */
+// void LUPSolve(f64 **A, i32 *P, f64 *b, i32 n, f64 *x) {
+// 
+//     for (i32 i = 0; i < n; i++) {
+//         x[i] = b[P[i]];
+// 
+//         for (i32 k = 0; k < i; k++)
+//             x[i] -= A(i,k) * x[k];
+//     }
+// 
+//     for (i32 l = n - 1; l >= 0; l--) {
+//         for (i32 k = l + 1; k < n; k++)
+//             x[l] -= A(l,k) * x[k];
+// 
+//         x[l] = x[l] / A(l,l);
+//     }
+// }
+// 
+// /* INPUT: A,P filled in LUPDecompose; n - dimension
+//  * OUTPUT: IA is the inverse of the initial matrix
+//  */
 
 
-// BLAS-dependent functions
-MAT_MUL(f64, d, f64Add, f64Mul);       // tested
-MAT_SCALE(f64, d);                     // tested
-// MAT_DET
-// MAT_INV
-// MAT_VNORM
+#define DECL_MAT_OPS(type, blas_prefix, lapack_prefix, printFun, equalFun, addFun, subFun, mulFun, divFun) \
+    MAT_DECL(type); \
+    MAT_MAKE(type); \
+    MAT_FREE(type); \
+    MAT_PRINTLONG(type, printFun); \
+    MAT_PRINT(type, printFun); \
+    MAT_EQUAL(type, equalFun); \
+    MAT_ZERO(type); \
+    MAT_IDENT(type); \
+    MAT_SET(type); \
+    MAT_SETELEMENT(type); \
+    MAT_GETELEMENT(type); \
+    MAT_COPY(type); \
+    MAT_SETCOL(type); \
+    MAT_GETCOL(type); \
+    MAT_SETROW(type); \
+    MAT_GETROW(type); \
+    MAT_ADD(type, addFun);            /* tested */ \
+    MAT_SUB(type, subFun);            /* tested */ \
+    MAT_ELOP(type, Mul, mulFun);      /* tested */ \
+    MAT_ELOP(type, Div, divFun);      /* tested */ \
+    MAT_TRACE(type);                  /* tested */ \
+    MAT_T(type);                      /* tested */ \
+    /* BLAS-dependent functions */ \
+    MAT_MUL(type, blas_prefix, addFun, mulFun);          /* tested */ \
+    MAT_SCALE(type, lapack_prefix);                      /* tested */ \
+    MAT_VNORM(type, lapack_prefix);                      /* tested */ \
+    MAT_INV_DET(type, lapack_prefix);                    /* tested */
+
+
+DECL_MAT_OPS(f64, d, d, f64Print, f64Equal, f64Add, f64Sub, f64Mul, f64Div);
 
 
 #if TEST
@@ -1161,6 +1365,29 @@ void test_trace()
 
 
 #if TEST
+void test_transpose()
+{
+    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
+    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
+    
+    for ( u32 i=0; i<9; ++i ) {
+        a.data[i] = (f64) i;
+    }
+    for ( u32 i=0; i<a.dim0; ++i ) {
+        for ( u32 j=0; j<a.dim1; ++j ) {
+            b.data[ j*b.dim0 + i ] = a.data[ i*a.dim0 + j ];
+        }
+    }
+    
+    f64MatT( a, c );
+    
+    TEST_ASSERT( f64MatEqual( c, b, EPS ) );
+}
+#endif
+
+
+#if TEST
 void test_inverse()
 {
     f64Mat c = f64MatIdentMake( DefaultAllocator, 3 );
@@ -1189,29 +1416,6 @@ void test_inverse()
     f64MatFree( DefaultAllocator, &g );
     
     ScratchBufferDestroy();
-}
-#endif
-
-
-#if TEST
-void test_transpose()
-{
-    f64Mat a = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat b = f64MatMake( DefaultAllocator, 3, 3 );
-    f64Mat c = f64MatMake( DefaultAllocator, 3, 3 );
-    
-    for ( u32 i=0; i<9; ++i ) {
-        a.data[i] = (f64) i;
-    }
-    for ( u32 i=0; i<a.dim0; ++i ) {
-        for ( u32 j=0; j<a.dim1; ++j ) {
-            b.data[ j*b.dim0 + i ] = a.data[ i*a.dim0 + j ];
-        }
-    }
-    
-    f64MatT( a, c );
-    
-    TEST_ASSERT( f64MatEqual( c, b, EPS ) );
 }
 #endif
 
