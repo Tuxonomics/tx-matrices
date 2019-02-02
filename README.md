@@ -13,7 +13,7 @@ The matrices are currently defined only in row-major.
 
 An important aspect is that the matrices can be allocated using custom
 allocators. The pre-defined allcator is the `DefaultAllocator` which resorts
-to a system call on every allocation.
+to an OS call on every allocation. Internally, also a scratch buffer is used.
 
 
 ## Table of Contents
