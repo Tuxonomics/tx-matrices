@@ -1,5 +1,6 @@
 
 
+// TODO(jonas): add rhs solve for LU decomposition
 // TODO(jonas): namespacing
 // TODO(jonas): QR decomposition, dedicated routines for symmetric matrices
 // TODO(jonas): default routines without BLAS
@@ -919,29 +920,82 @@ void ScratchBufferDestroy( void )
 // ipiv - pivot marker of length n
 // tmp - temporary memory not being allocated inside, length n
 
+#define a(i,j)     a[i*n+j]
+#define a_row(i)   a[i*n]
+
+// #define MAT_LU(type) b32 \
+//     type##LU(type *a, i32 *ipiv, type *tmp, u32 n, type tol) \
+//     { \
+//         \
+//         u32 i, j, k, imax; \
+//         type maxA, absA; \
+//         u64 tmpSize = n * sizeof(*a); \
+//         \
+//         for (i = 0; i <= n; i++) \
+//             ipiv[i] = i;  /* Unit permutation matrix, ipiv[n] initialized with n */ \
+//         \
+//         for (i = 0; i < n; i++) { \
+//             maxA = 0.0; \
+//             imax = i; \
+//             \
+//             for (k = i; k < n; k++) \
+//                 if ((absA = fabs(a(k,i))) > maxA) { \
+//                     maxA = absA; \
+//                     imax = k; \
+//                 } \
+//             \
+//             if (maxA < tol) { \
+//                 return 0;  /* failure, matrix is degenerate */ \
+//             } \
+//             \
+//             if (imax != i) { \
+//                  pivoting ipiv  \
+//                 j = ipiv[i]; \
+//                 ipiv[i] = ipiv[imax]; \
+//                 ipiv[imax] = j; \
+//                 \
+//                 /* TODO: this is very expensive! */ \
+//                 memcpy( tmp,          &a_row(i),    tmpSize ); \
+//                 memcpy( &a_row(i),    &a_row(imax), tmpSize ); \
+//                 memcpy( &a_row(imax), tmp,          tmpSize ); \
+//                 \
+//                 /* counting pivots starting from n (for determinant) */ \
+//                 ipiv[n]++; \
+//             } \
+//             \
+//             for (j = i + 1; j < n; j++) { \
+//                 a(j,i) /= a(i,i); \
+//                 \
+//                 for (k = i + 1; k < n; k++) \
+//                     a(j,k) -= a(j,i) * a(i,k); \
+//             } \
+//         } \
+//         return 1;  /* decomposition done */ \
+//     }
+
+
 #define MAT_LU(type) b32 \
     type##LU(type *a, i32 *ipiv, type *tmp, u32 n, type tol) \
     { \
-        \
         u32 i, j, k, imax; \
         type maxA, absA; \
         \
+        u64 tmpSize = n * sizeof(*a); \
+        \
         for (i = 0; i <= n; i++) \
-            ipiv[i] = i;  /* Unit permutation matrix, ipiv[n] initialized with n */ \
+            ipiv[i] = i; /*Unit permutation matrix, ipiv[N] initialized with N */ \
         \
         for (i = 0; i < n; i++) { \
             maxA = 0.0; \
             imax = i; \
             \
             for (k = i; k < n; k++) \
-                if ((absA = fabs(a[k*n+i])) > maxA) { \
+                if ((absA = fabs(a(k,i))) > maxA) { \
                     maxA = absA; \
                     imax = k; \
                 } \
             \
-            if (maxA < tol) { \
-                return 0;  /* failure, matrix is degenerate */ \
-            } \
+            if (maxA < tol) return 0; /* failure, matrix is degenerate */ \
             \
             if (imax != i) { \
                 /* pivoting ipiv */ \
@@ -949,20 +1003,20 @@ void ScratchBufferDestroy( void )
                 ipiv[i] = ipiv[imax]; \
                 ipiv[imax] = j; \
                 \
-                /* TODO: this is very expensive! */ \
-                memcpy( tmp, a + i*n, n * sizeof(*a) ); \
-                memcpy( a + i*n, a + imax*n, n * sizeof(*a) ); \
-                memcpy( a + imax*n, tmp, n * sizeof(*a) ); \
+                /* pivoting rows of A */ \
+                memcpy( tmp,          &a_row(i),    tmpSize ); \
+                memcpy( &a_row(i),    &a_row(imax), tmpSize ); \
+                memcpy( &a_row(imax), tmp,          tmpSize ); \
                 \
-                /* counting pivots starting from n (for determinant) */ \
+                /* counting pivots starting from N (for determinant) */ \
                 ipiv[n]++; \
             } \
             \
             for (j = i + 1; j < n; j++) { \
-                a[j*n+i] /= a[i*n+i]; \
+                a(j,i) /= a(i,i); \
                 \
                 for (k = i + 1; k < n; k++) \
-                    a[j*n+k] -= a[j*n+i] * a[j*n+k]; \
+                    a(j,k) -= a(j,i) * a(i,k);\
             } \
         } \
         return 1;  /* decomposition done */ \
@@ -975,14 +1029,15 @@ void ScratchBufferDestroy( void )
         ASSERT( m.dim0 == m.dim1 && m.dim0 == dst.dim0 && m.dim1 == dst.dim1 ); \
         u32 n = m.dim0; \
         \
-        u32 scratchSize = (n * n + n)* sizeof(type); \
-        scratchSize    += n * sizeof(i32); \
+        u64 ipivSize = (n+1) * sizeof(i32);\
+        \
+        u64 scratchSize = (n * n + n) * sizeof(type) + ipivSize; \
         ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
         \
         type##Mat tmp = type##MatMake( ScratchBuffer, n, n ); \
         type##MatCopy( m, tmp ); \
         \
-        i32 *ipiv = Alloc( ScratchBuffer, n * sizeof(i32) ); \
+        i32 *ipiv = Alloc( ScratchBuffer, ipivSize ); \
         type *tmpV = Alloc( ScratchBuffer, n * sizeof(type) ); \
         \
         b32 ret = type##LU(tmp.data, ipiv, tmpV, n, 1.0E-40); \
@@ -1006,13 +1061,14 @@ void ScratchBufferDestroy( void )
                     im[i*n+j] -= a[i*n+k] * im[k*n+j]; \
             } \
             \
-            for ( u32 l = n - 1; l >= 0; --l ) { \
+            for ( i32 l = n - 1; l >= 0; --l ) { \
                 for ( u32 k = l + 1; k < n; ++k ) \
                     im[l*n+j] -= a[l*n+k] * im[k*n+j]; \
                 \
                 im[l*n+j] = im[l*n+j] / a[l*n+l]; \
             } \
         } \
+        FreeAll( ScratchBuffer ); \
         return 1; \
     }
 
@@ -1051,7 +1107,7 @@ void ScratchBufferDestroy( void )
         ASSERT( m.dim0 == m.dim1 ); \
         u32 n = m.dim0; \
         \
-        u32 scratchSize = (n * n + n)* sizeof(type); \
+        u64 scratchSize = (n * n + n)* sizeof(type); \
         scratchSize    += n * sizeof(i32); \
         ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
         \
@@ -1074,7 +1130,7 @@ void ScratchBufferDestroy( void )
         for ( u32 i = 1; i < n; ++i ) \
             det *= a[i*n+i]; \
         \
-        if ( (ipiv[n] - n) % 2 != 0 ) \
+        if ( (ipiv[n] - n) % 2 == 0 ) \
             det = -det; \
         \
         FreeAll( ScratchBuffer ); \
@@ -1088,7 +1144,7 @@ void ScratchBufferDestroy( void )
     {\
         ASSERT( m.dim0 == m.dim1 ); \
         \
-        u32 scratchSize = m.dim0 * m.dim0 * sizeof(type); \
+        u64 scratchSize = m.dim0 * m.dim0 * sizeof(type); \
         ArenaAllocatorCheck( &ScratchArena, &ScratchBuffer, scratchSize ); \
         \
         type##Mat tmp = type##MatMake( ScratchBuffer, m.dim0, m.dim0 ); \
@@ -1212,6 +1268,10 @@ void ScratchBufferDestroy( void )
 
 
 DECL_MAT_OPS(f64, d, d, f64Print, f64Equal, f64Add, f64Sub, f64Mul, f64Div);
+
+
+#undef a
+#undef a_row
 
 
 #if TEST
@@ -1444,7 +1504,7 @@ void test_determinant()
     f.data[7] = 4.0;
     f.data[8] = 3.0;
 
-    TEST_ASSERT( f64Equal( f64MatDet(f), -2.0, 1E-6 ) );
+    f64 det1 = f64MatDet(f);
 
 
     f.data[0] = 1.0;
@@ -1457,10 +1517,32 @@ void test_determinant()
     f.data[7] = 1.0;
     f.data[8] = 1.0;
 
-    TEST_ASSERT( f64Equal( f64MatDet(f), 1.0, 1E-6 ) );
+    f64 det2 = f64MatDet(f);
+
+    TEST_ASSERT( f64Equal( det1, -2.0, EPS ) );
+    TEST_ASSERT( f64Equal( det2,  1.0, EPS ) );
+
+
+    u32 n = 100;
+
+    f64Mat g = f64MatMake( DefaultAllocator, n, n );
+
+    for ( u32 j=0; j<n*n; ++j ) {
+        g.data[j] = 5.0;
+    }
+
+    for ( u32 l=0; l<n; ++l ) {
+        g.data[l*n+l] = -1.0;
+    }
+
+    f64 det3 = f64MatDet(g);
+
+
+    TEST_ASSERT( f64Equal( 1.0, -494.0 * pow(6.0, 99) / det3, EPS ) );
 
 
     f64MatFree( DefaultAllocator, &f );
+    f64MatFree( DefaultAllocator, &g );
 
     ScratchBufferDestroy();
 }
