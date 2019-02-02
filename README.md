@@ -1,4 +1,4 @@
-# Matrices (WIP)
+# TX-Matrices (WIP)
 [![CircleCI](https://circleci.com/gh/Tuxonomics/matrices-c.svg?style=svg)](https://circleci.com/gh/Tuxonomics/matrices-c)
 
 This repository provides a matrix abstraction for C89 and up. So far the
