@@ -669,44 +669,44 @@ void ScratchBufferDestroy( void )
     }
 
 #define MAT_SETCOL(type) Inline void \
-    type##MatSetCol(type##Mat m, u32 dim, type##Mat newCol) \
+    type##MatSetCol(type##Mat m, u32 dim, type##Mat srcCol) \
     { \
         ASSERT( m.data ); \
-        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        ASSERT( srcCol.dim0 * srcCol.dim1 == m.dim0 ); \
         \
         u32 idx = dim*m.dim1; \
-        memcpy( &m.data[idx], newCol.data, sizeof( type ) * m.dim0 ); \
+        memcpy( &m.data[idx], srcCol.data, sizeof( type ) * m.dim0 ); \
     }
 
 #define MAT_GETCOL(type) Inline void \
-    type##MatGetCol(type##Mat m, u32 dim, type##Mat newCol) \
+    type##MatGetCol(type##Mat m, u32 dim, type##Mat dstCol) \
     { \
         ASSERT( m.data ); \
-        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        ASSERT( dstCol.dim0 * dstCol.dim1 == m.dim0 ); \
         \
         u32 idx = dim*m.dim1; \
-        memcpy( newCol.data, &m.data[idx], sizeof( type ) * m.dim0 ); \
+        memcpy( dstCol.data, &m.data[idx], sizeof( type ) * m.dim0 ); \
     }
 
 #define MAT_SETROW(type) Inline void \
-    type##MatSetRow(type##Mat m, u32 dim, type##Mat newCol) \
+    type##MatSetRow(type##Mat m, u32 dim, type##Mat srcRow) \
     { \
         ASSERT( m.data ); \
-        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        ASSERT( srcRow.dim0 * srcRow.dim1 == m.dim0 ); \
         \
         for ( u32 i=0; i<m.dim1; ++i ) { \
-            m.data[dim * m.dim1 + i] = newCol.data[i]; \
+            m.data[dim * m.dim1 + i] = srcRow.data[i]; \
         } \
     }
 
 #define MAT_GETROW(type) Inline void \
-    type##MatGetRow(type##Mat m, u32 dim, type##Mat newCol) \
+    type##MatGetRow(type##Mat m, u32 dim, type##Mat dstRow) \
     { \
         ASSERT( m.data ); \
-        ASSERT( newCol.dim0 * newCol.dim1 == m.dim0 ); \
+        ASSERT( dstRow.dim0 * dstRow.dim1 == m.dim0 ); \
         \
         for ( u32 i=0; i<m.dim1; ++i ) { \
-            newCol.data[i] = m.data[dim * m.dim1 + i]; \
+            dstRow.data[i] = m.data[dim * m.dim1 + i]; \
         } \
     }
 
